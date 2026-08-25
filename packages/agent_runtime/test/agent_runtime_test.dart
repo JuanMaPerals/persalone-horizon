@@ -61,6 +61,8 @@ final class _FakeController implements AgentController {
   int starts = 0;
   int stops = 0;
   int disposes = 0;
+  AgentSessionContext? startContext;
+  AgentSessionContext? stopContext;
 
   @override
   Future<void> dispose() async {
@@ -70,12 +72,40 @@ final class _FakeController implements AgentController {
   @override
   Future<void> start(AgentSessionContext context) async {
     starts += 1;
+    startContext = context;
   }
 
   @override
   Future<void> stop(AgentSessionContext context) async {
     stops += 1;
+    stopContext = context;
   }
+}
+
+final class _ChangingManifestController implements AgentController {
+  _ChangingManifestController(this.initialManifest, this.laterManifest);
+
+  final AgentManifest initialManifest;
+  final AgentManifest laterManifest;
+  int manifestReads = 0;
+  int starts = 0;
+
+  @override
+  AgentManifest get manifest {
+    manifestReads += 1;
+    return manifestReads == 1 ? initialManifest : laterManifest;
+  }
+
+  @override
+  Future<void> dispose() async {}
+
+  @override
+  Future<void> start(AgentSessionContext context) async {
+    starts += 1;
+  }
+
+  @override
+  Future<void> stop(AgentSessionContext context) async {}
 }
 
 final class _CapabilityResolver implements AgentCapabilityResolver {
@@ -204,6 +234,133 @@ void main() {
         ),
       );
       expect(controller.starts, 0);
+      await runtime.dispose();
+    });
+
+    test('captures mutable manifest collections at registration', () async {
+      final requestedPermissions = <AgentPermission>{
+        AgentPermission.liveTranslationControl,
+      };
+      final requirements = <AgentProviderRequirement>[
+        const AgentProviderRequirement(
+          category: AgentProviderCategory.localTextTranslation,
+          localOnly: true,
+        ),
+      ];
+      final manifest = AgentManifest(
+        schemaVersion: AgentManifest.currentSchemaVersion,
+        agentId: _manifest.agentId,
+        displayName: _manifest.displayName,
+        version: _manifest.version,
+        requestedPermissions: requestedPermissions,
+        providerRequirements: requirements,
+        memoryPolicy: AgentMemoryPolicy.none,
+      );
+      final runtime = _runtime();
+      final controller = _FakeController(manifest);
+      await runtime.register(controller);
+
+      requestedPermissions.add(AgentPermission.microphoneCapture);
+      requirements.add(const AgentProviderRequirement(
+        category: AgentProviderCategory.localSpeechRecognition,
+        localOnly: true,
+      ));
+
+      final registration = await runtime.registrationFor(_manifest.agentId);
+      expect(
+        registration.manifest.requestedPermissions,
+        <AgentPermission>{AgentPermission.liveTranslationControl},
+      );
+      expect(registration.manifest.providerRequirements, hasLength(1));
+      expect(
+        () => registration.manifest.requestedPermissions
+            .add(AgentPermission.microphoneCapture),
+        throwsUnsupportedError,
+      );
+      expect(
+        () => registration.manifest.providerRequirements.add(
+          const AgentProviderRequirement(
+            category: AgentProviderCategory.localSpeechRecognition,
+            localOnly: true,
+          ),
+        ),
+        throwsUnsupportedError,
+      );
+      await runtime.start(_manifest.agentId, _context());
+      expect(controller.starts, 1);
+      await runtime.dispose();
+    });
+
+    test('reads a controller manifest once and ignores later getter drift',
+        () async {
+      final changedManifest = AgentManifest(
+        schemaVersion: AgentManifest.currentSchemaVersion,
+        agentId: _manifest.agentId,
+        displayName: _manifest.displayName,
+        version: _manifest.version,
+        requestedPermissions: const <AgentPermission>{
+          AgentPermission.microphoneCapture,
+        },
+        providerRequirements: _manifest.providerRequirements,
+        memoryPolicy: _manifest.memoryPolicy,
+      );
+      final runtime = _runtime();
+      final controller =
+          _ChangingManifestController(_manifest, changedManifest);
+      await runtime.register(controller);
+
+      await runtime.start(_manifest.agentId, _context());
+
+      expect(controller.manifestReads, 1);
+      expect(controller.starts, 1);
+      final registration = await runtime.registrationFor(_manifest.agentId);
+      expect(
+        registration.manifest.requestedPermissions,
+        _manifest.requestedPermissions,
+      );
+      await runtime.dispose();
+    });
+
+    test('captures grant permissions before asynchronous lifecycle work',
+        () async {
+      final mutableGrantPermissions = <AgentPermission>{
+        AgentPermission.liveTranslationControl,
+      };
+      final runtime = _runtime();
+      final controller = _FakeController(_manifest);
+      await runtime.register(controller);
+      final context = _context(permissions: mutableGrantPermissions);
+
+      final start = runtime.start(_manifest.agentId, context);
+      mutableGrantPermissions.add(AgentPermission.microphoneCapture);
+      await start;
+
+      expect(
+        controller.startContext?.grant.permissions,
+        <AgentPermission>{AgentPermission.liveTranslationControl},
+      );
+      expect(
+        () => controller.startContext?.grant.permissions
+            .add(AgentPermission.microphoneCapture),
+        throwsUnsupportedError,
+      );
+
+      final stopPermissions = <AgentPermission>{
+        AgentPermission.liveTranslationControl,
+      };
+      final stopContext = _context(permissions: stopPermissions);
+      final stop = runtime.stop(_manifest.agentId, stopContext);
+      stopPermissions.add(AgentPermission.microphoneCapture);
+      await stop;
+      expect(
+        controller.stopContext?.grant.permissions,
+        <AgentPermission>{AgentPermission.liveTranslationControl},
+      );
+      expect(
+        () => controller.stopContext?.grant.permissions
+            .add(AgentPermission.microphoneCapture),
+        throwsUnsupportedError,
+      );
       await runtime.dispose();
     });
 
