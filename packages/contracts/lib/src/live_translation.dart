@@ -104,13 +104,19 @@ final class LiveTranslationDiagnostic {
     required this.component,
     required this.observedAtMicros,
     this.sequence,
+    this.turnGeneration,
     this.detail,
   });
 
   final LiveTranslationDiagnosticCode code;
   final String component;
   final int observedAtMicros;
+
+  /// Correlation evidence only; it is never a turn generation.
   final int? sequence;
+
+  /// Redacted lifecycle metadata for exact-turn stale handling.
+  final int? turnGeneration;
   final String? detail;
 }
 
@@ -143,6 +149,10 @@ abstract interface class StreamingSttProvider {
   Stream<TranscriptSegment> get transcripts;
 
   Future<void> prepare(LiveTranslationConfig config, AudioFormat format);
+
+  /// Rotates the native callback generation without changing audio ownership.
+  /// A provider must tag callbacks with this exact token or discard them.
+  Future<void> beginTurn(TranslationExecutionToken token);
   Future<void> push(AudioFrame frame);
   Future<void> stop();
   Future<void> dispose();

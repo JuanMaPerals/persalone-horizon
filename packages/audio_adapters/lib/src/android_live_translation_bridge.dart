@@ -11,10 +11,12 @@ abstract interface class AndroidLiveTranslationBridge {
   Future<Map<Object?, Object?>> prepareStt({
     required String sessionId,
     required int streamEpoch,
+    required int turnGeneration,
     required String locale,
     required int sampleRateHz,
     required int channels,
   });
+  Future<void> beginSttTurn({required int turnGeneration});
   Future<void> pushSttPcm(Uint8List pcm);
   Future<void> stopStt();
 
@@ -81,6 +83,7 @@ final class MethodChannelAndroidLiveTranslationBridge
   Future<Map<Object?, Object?>> prepareStt({
     required String sessionId,
     required int streamEpoch,
+    required int turnGeneration,
     required String locale,
     required int sampleRateHz,
     required int channels,
@@ -88,10 +91,18 @@ final class MethodChannelAndroidLiveTranslationBridge
       _invokeMap(_sttChannel, 'prepare', <String, Object>{
         'sessionId': sessionId,
         'streamEpoch': streamEpoch,
+        'turnGeneration': turnGeneration,
         'locale': locale,
         'sampleRateHz': sampleRateHz,
         'channels': channels,
       });
+
+  @override
+  Future<void> beginSttTurn({required int turnGeneration}) =>
+      _sttChannel.invokeMethod<void>(
+        'beginTurn',
+        <String, Object>{'turnGeneration': turnGeneration},
+      );
 
   @override
   Future<void> pushSttPcm(Uint8List pcm) =>

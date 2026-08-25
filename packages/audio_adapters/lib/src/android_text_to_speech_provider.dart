@@ -23,6 +23,7 @@ final class AndroidTextToSpeechProvider implements SpeechSynthesisProvider {
       StreamController<LiveTranslationDiagnostic>.broadcast();
   StreamSubscription<Map<Object?, Object?>>? _events;
   LiveTranslationConfig? _config;
+  OpaqueUtteranceIdentity? _activeUtterance;
   bool _disposed = false;
 
   @override
@@ -88,10 +89,22 @@ final class AndroidTextToSpeechProvider implements SpeechSynthesisProvider {
         'Speech synthesis rejected an inactive translation session.',
       );
     }
-    final utteranceId = '${segment.session.streamEpoch}-${segment.sequence}';
+    final token = segment.session.executionToken;
+    token.validate();
+    final utteranceId = OpaqueUtteranceIdentityCodec.encode(
+      token: token,
+      // Sequence remains correlation evidence only; turnGeneration is carried
+      // independently by the execution token.
+      nonce: segment.sequence,
+    );
+    final identity = OpaqueUtteranceIdentityCodec.decode(utteranceId);
+    _activeUtterance = identity;
     try {
-      _emitDiagnostic(LiveTranslationDiagnosticCode.synthesisStarted,
-          sequence: segment.sequence);
+      _emitDiagnostic(
+        LiveTranslationDiagnosticCode.synthesisStarted,
+        sequence: segment.sequence,
+        turnGeneration: token.turnGeneration,
+      );
       await _bridge.speak(
         text: segment.translatedText,
         utteranceId: utteranceId,
@@ -108,6 +121,7 @@ final class AndroidTextToSpeechProvider implements SpeechSynthesisProvider {
 
   @override
   Future<void> stop() async {
+    _activeUtterance = null;
     try {
       await _bridge.stopTts();
     } on PlatformException {
@@ -131,17 +145,39 @@ final class AndroidTextToSpeechProvider implements SpeechSynthesisProvider {
 
   void _handleEvent(Map<Object?, Object?> event) {
     final type = event['type'];
-    final sequence = event['sequence'];
-    final typedSequence = sequence is int ? sequence : null;
-    switch (type) {
-      case 'started':
-        _emitDiagnostic(LiveTranslationDiagnosticCode.synthesisStarted,
-            sequence: typedSequence);
-      case 'completed':
-        _emitDiagnostic(LiveTranslationDiagnosticCode.synthesisCompleted,
-            sequence: typedSequence);
-      case 'error':
-        _emitUnavailable();
+    final encodedIdentity = event['utteranceId'];
+    if (encodedIdentity is! String) {
+      _emitDiagnostic(LiveTranslationDiagnosticCode.staleCallbackDiscarded);
+      return;
+    }
+    try {
+      final identity = OpaqueUtteranceIdentityCodec.decode(encodedIdentity);
+      final active = _activeUtterance;
+      if (active == null || !active.matches(identity)) {
+        _emitDiagnostic(
+          LiveTranslationDiagnosticCode.staleCallbackDiscarded,
+          turnGeneration: identity.turnGeneration,
+        );
+        return;
+      }
+      switch (type) {
+        case 'started':
+          _emitDiagnostic(
+            LiveTranslationDiagnosticCode.synthesisStarted,
+            sequence: identity.nonce,
+            turnGeneration: identity.turnGeneration,
+          );
+        case 'completed':
+          _emitDiagnostic(
+            LiveTranslationDiagnosticCode.synthesisCompleted,
+            sequence: identity.nonce,
+            turnGeneration: identity.turnGeneration,
+          );
+        case 'error':
+          _emitUnavailable();
+      }
+    } on RuntimeError {
+      _emitDiagnostic(LiveTranslationDiagnosticCode.staleCallbackDiscarded);
     }
   }
 
@@ -173,13 +209,18 @@ final class AndroidTextToSpeechProvider implements SpeechSynthesisProvider {
     }
   }
 
-  void _emitDiagnostic(LiveTranslationDiagnosticCode code, {int? sequence}) {
+  void _emitDiagnostic(
+    LiveTranslationDiagnosticCode code, {
+    int? sequence,
+    int? turnGeneration,
+  }) {
     if (!_diagnostics.isClosed) {
       _diagnostics.add(LiveTranslationDiagnostic(
         code: code,
         component: providerId,
         observedAtMicros: _nowMicros,
         sequence: sequence,
+        turnGeneration: turnGeneration,
       ));
     }
   }

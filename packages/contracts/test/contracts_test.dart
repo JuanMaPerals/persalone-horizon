@@ -10,10 +10,63 @@ void main() {
         states: <Capability, CapabilityState>{},
       );
 
-      final CapabilityState state = manifest.stateFor(Capability.microphoneCapture);
+      final CapabilityState state =
+          manifest.stateFor(Capability.microphoneCapture);
 
       expect(state.truthLabel, TruthLabel.blocked);
       expect(state.isUsable, isFalse);
+    });
+  });
+
+  group('TranslationExecutionToken and utterance codec', () {
+    const token = TranslationExecutionToken(
+      sessionId: 'session-1',
+      streamEpoch: 2,
+      privacyGeneration: 3,
+      turnGeneration: 4,
+    );
+
+    test('round-trips an opaque utterance identity without content', () {
+      final encoded = OpaqueUtteranceIdentityCodec.encode(
+        token: token,
+        nonce: 99,
+      );
+      final decoded = OpaqueUtteranceIdentityCodec.decode(encoded);
+
+      expect(decoded.matchesToken(token), isTrue);
+      expect(decoded.nonce, 99);
+      expect(encoded, isNot(contains('session-1')));
+    });
+
+    test('rejects malformed utterance identity fail-closed', () {
+      expect(
+        () => OpaqueUtteranceIdentityCodec.decode('invalid'),
+        throwsA(
+          isA<RuntimeError>().having(
+            (RuntimeError error) => error.code,
+            'code',
+            RuntimeErrorCode.invalidContract,
+          ),
+        ),
+      );
+    });
+
+    test('keeps transcript sequence distinct from turn generation', () {
+      const session = TranslationSession(
+        sessionId: 'session-1',
+        streamEpoch: 2,
+        direction: TranslationDirection.englishToSpanish,
+        privacyGeneration: 3,
+        turnGeneration: 4,
+      );
+      final encoded = OpaqueUtteranceIdentityCodec.encode(
+        token: session.executionToken,
+        nonce: 500,
+      );
+      final decoded = OpaqueUtteranceIdentityCodec.decode(encoded);
+
+      expect(decoded.turnGeneration, 4);
+      expect(decoded.nonce, 500);
     });
   });
 

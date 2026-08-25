@@ -39,6 +39,7 @@ void main() {
         'type': 'partial',
         'sessionId': config.session.sessionId,
         'streamEpoch': config.session.streamEpoch,
+        'turnGeneration': config.session.turnGeneration,
         'sequence': 3,
         'text': 'private test text',
         'observedAtMicros': 10,
@@ -48,6 +49,45 @@ void main() {
       expect(segment.sequence, 3);
       expect(segment.stability, TranscriptStability.partial);
       expect(segment.truthLabel, TruthLabel.prepared);
+    });
+
+    test('discards a stale-generation platform event without transcript text',
+        () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidSpeechRecognizerProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final transcripts = <TranscriptSegment>[];
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      final transcriptSubscription =
+          provider.transcripts.listen(transcripts.add);
+      final diagnosticSubscription =
+          provider.diagnostics.listen(diagnostics.add);
+      addTearDown(transcriptSubscription.cancel);
+      addTearDown(diagnosticSubscription.cancel);
+      final config = _config();
+      await provider.prepare(config, AudioFormat.voice16kMono);
+
+      bridge.sttController.add(<Object?, Object?>{
+        'type': 'final',
+        'sessionId': config.session.sessionId,
+        'streamEpoch': config.session.streamEpoch,
+        'turnGeneration': config.session.turnGeneration + 1,
+        'sequence': 4,
+        'text': 'private stale text',
+        'observedAtMicros': 10,
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(transcripts, isEmpty);
+      expect(
+        diagnostics.any(
+          (event) =>
+              event.code ==
+                  LiveTranslationDiagnosticCode.staleCallbackDiscarded &&
+              event.detail == null,
+        ),
+        isTrue,
+      );
     });
 
     test('rejects a frame from another active epoch', () async {
@@ -122,7 +162,8 @@ void main() {
       );
     });
 
-    test('queues synthesis with a session-scoped utterance id', () async {
+    test('queues synthesis with an opaque execution-token utterance id',
+        () async {
       final bridge = _FakeLiveTranslationBridge();
       final provider = AndroidTextToSpeechProvider(bridge: bridge);
       addTearDown(provider.dispose);
@@ -139,7 +180,69 @@ void main() {
           truthLabel: TruthLabel.simulated,
         ),
       );
-      expect(bridge.lastUtteranceId, '7-9');
+      final identity = OpaqueUtteranceIdentityCodec.decode(
+        bridge.lastUtteranceId!,
+      );
+      expect(identity.matchesToken(config.session.executionToken), isTrue);
+      expect(identity.nonce, 9);
+      expect(bridge.lastUtteranceId, isNot(contains('private source')));
+      expect(bridge.lastUtteranceId, isNot(contains('private target')));
+    });
+
+    test('discards malformed and stale Android utterance callbacks', () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      final subscription = provider.diagnostics.listen(diagnostics.add);
+      addTearDown(subscription.cancel);
+      final config = _config();
+      await provider.prepare(config);
+      final segment = TranslationSegment(
+        session: config.session,
+        sequence: 9,
+        sourceText: 'private source',
+        translatedText: 'private target',
+        observedAtMicros: 1,
+        truthLabel: TruthLabel.simulated,
+      );
+      await provider.speak(segment);
+
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'completed',
+        'utteranceId': 'not-a-valid-identity',
+      });
+      final wrongGeneration = OpaqueUtteranceIdentityCodec.encode(
+        token: const TranslationExecutionToken(
+          sessionId: 'session-a',
+          streamEpoch: 7,
+          privacyGeneration: 1,
+          turnGeneration: 99,
+        ),
+        nonce: 9,
+      );
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'completed',
+        'utteranceId': wrongGeneration,
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        diagnostics.where(
+          (event) =>
+              event.code ==
+              LiveTranslationDiagnosticCode.staleCallbackDiscarded,
+        ),
+        hasLength(2),
+      );
+      expect(
+        diagnostics.any(
+          (event) =>
+              event.code == LiveTranslationDiagnosticCode.synthesisCompleted,
+        ),
+        isFalse,
+      );
+      expect(diagnostics.every((event) => event.detail == null), isTrue);
     });
   });
 }
@@ -215,11 +318,15 @@ final class _FakeLiveTranslationBridge implements AndroidLiveTranslationBridge {
   Future<Map<Object?, Object?>> prepareStt({
     required String sessionId,
     required int streamEpoch,
+    required int turnGeneration,
     required String locale,
     required int sampleRateHz,
     required int channels,
   }) async =>
       <Object?, Object?>{'ready': sttReady};
+  @override
+  Future<void> beginSttTurn({required int turnGeneration}) async {}
+
   @override
   Future<void> pushSttPcm(Uint8List pcm) async {
     pushedPcm.add(pcm);
