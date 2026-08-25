@@ -148,6 +148,24 @@ final class AgentSessionContext {
   final AgentExecutionMode executionMode;
 }
 
+/// A high-level controller terminal event. It intentionally excludes session
+/// identifiers, PCM, transcripts, translations, provider details and keys.
+final class AgentControllerTerminalEvent {
+  const AgentControllerTerminalEvent({
+    required this.agentId,
+    required this.streamEpoch,
+    required this.privacyGeneration,
+    required this.startGeneration,
+    required this.failureCode,
+  });
+
+  final String agentId;
+  final int streamEpoch;
+  final int privacyGeneration;
+  final int startGeneration;
+  final RuntimeErrorCode failureCode;
+}
+
 enum AgentAuditEventCode {
   agentRegistered,
   registrationRejected,

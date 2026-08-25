@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:persalone_agent_runtime/persalone_agent_runtime.dart';
 import 'package:persalone_contracts/persalone_contracts.dart';
+import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
 import 'package:test/test.dart';
 
 const AgentManifest _manifest = AgentManifest(
@@ -61,24 +64,52 @@ final class _FakeController implements AgentController {
   int starts = 0;
   int stops = 0;
   int disposes = 0;
+  bool failStart = false;
+  bool failStop = false;
+  int _nextStartGeneration = 0;
+  int? _activeStartGeneration;
+  final terminalController =
+      StreamController<AgentControllerTerminalEvent>.broadcast();
   AgentSessionContext? startContext;
   AgentSessionContext? stopContext;
 
   @override
+  Stream<AgentControllerTerminalEvent> get terminalEvents =>
+      terminalController.stream;
+
+  @override
+  int? get activeStartGeneration => _activeStartGeneration;
+
+  @override
   Future<void> dispose() async {
     disposes += 1;
+    await terminalController.close();
   }
 
   @override
   Future<void> start(AgentSessionContext context) async {
     starts += 1;
+    _nextStartGeneration += 1;
+    _activeStartGeneration = _nextStartGeneration;
     startContext = context;
+    if (failStart) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled controller start failure.',
+      );
+    }
   }
 
   @override
   Future<void> stop(AgentSessionContext context) async {
     stops += 1;
     stopContext = context;
+    if (failStop) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled controller stop failure.',
+      );
+    }
   }
 }
 
@@ -89,6 +120,7 @@ final class _ChangingManifestController implements AgentController {
   final AgentManifest laterManifest;
   int manifestReads = 0;
   int starts = 0;
+  int? _activeStartGeneration;
 
   @override
   AgentManifest get manifest {
@@ -97,11 +129,19 @@ final class _ChangingManifestController implements AgentController {
   }
 
   @override
+  Stream<AgentControllerTerminalEvent> get terminalEvents =>
+      const Stream<AgentControllerTerminalEvent>.empty();
+
+  @override
+  int? get activeStartGeneration => _activeStartGeneration;
+
+  @override
   Future<void> dispose() async {}
 
   @override
   Future<void> start(AgentSessionContext context) async {
     starts += 1;
+    _activeStartGeneration = starts;
   }
 
   @override
@@ -138,6 +178,10 @@ final class _TranslationController implements TranslationSessionController {
   int disposes = 0;
   LiveTranslationConfig? config;
   AudioSessionDescriptor? audioSession;
+
+  @override
+  Stream<HorizonTranslationRuntimeTerminalEvent> get terminalEvents =>
+      const Stream<HorizonTranslationRuntimeTerminalEvent>.empty();
 
   @override
   Future<void> dispose() async {
@@ -234,6 +278,77 @@ void main() {
         ),
       );
       expect(controller.starts, 0);
+      await runtime.dispose();
+    });
+
+    test(
+        'fails closed with one controller stop when start fails after invocation',
+        () async {
+      final runtime = _runtime();
+      final controller = _FakeController(_manifest)
+        ..failStart = true
+        ..failStop = true;
+      await runtime.register(controller);
+
+      await expectLater(
+        runtime.start(_manifest.agentId, _context()),
+        throwsA(
+          isA<RuntimeError>().having(
+            (RuntimeError error) => error.code,
+            'code',
+            RuntimeErrorCode.providerUnavailable,
+          ),
+        ),
+      );
+
+      expect(controller.starts, 1);
+      expect(controller.stops, 1);
+      expect(
+        (await runtime.registrationFor(_manifest.agentId)).state,
+        AgentLifecycleState.failed,
+      );
+      await runtime.dispose();
+    });
+
+    test(
+        'ignores a prior controller failure after restart and terminates only the matching generation',
+        () async {
+      final runtime = _runtime();
+      final controller = _FakeController(_manifest);
+      await runtime.register(controller);
+      await runtime.start(_manifest.agentId, _context());
+      await runtime.stop(_manifest.agentId, _context());
+      await runtime.start(_manifest.agentId, _context());
+
+      controller.terminalController.add(AgentControllerTerminalEvent(
+        agentId: _manifest.agentId,
+        streamEpoch: 3,
+        privacyGeneration: 1,
+        startGeneration: 1,
+        failureCode: RuntimeErrorCode.providerUnavailable,
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        (await runtime.registrationFor(_manifest.agentId)).state,
+        AgentLifecycleState.active,
+      );
+      expect(controller.stops, 1);
+
+      controller.terminalController.add(AgentControllerTerminalEvent(
+        agentId: _manifest.agentId,
+        streamEpoch: 3,
+        privacyGeneration: 1,
+        startGeneration: 2,
+        failureCode: RuntimeErrorCode.providerUnavailable,
+      ));
+      await Future<void>.delayed(Duration.zero);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        (await runtime.registrationFor(_manifest.agentId)).state,
+        AgentLifecycleState.failed,
+      );
+      expect(controller.stops, 2);
       await runtime.dispose();
     });
 

@@ -93,6 +93,7 @@ enum LiveTranslationDiagnosticCode {
   synthesisStarted,
   synthesisCompleted,
   synthesisFailed,
+  terminalTeardownDegraded,
   staleCallbackDiscarded,
 }
 

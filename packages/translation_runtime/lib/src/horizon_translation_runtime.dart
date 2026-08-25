@@ -12,6 +12,19 @@ enum HorizonTranslationRuntimeState {
   disposed,
 }
 
+/// Terminal evidence for the high-level owner. It deliberately omits session
+/// identifiers, PCM, transcripts, translations, device IDs, provider detail and
+/// credentials.
+final class HorizonTranslationRuntimeTerminalEvent {
+  const HorizonTranslationRuntimeTerminalEvent({
+    required this.startGeneration,
+    required this.failureCode,
+  });
+
+  final int startGeneration;
+  final RuntimeErrorCode failureCode;
+}
+
 /// A redacted runtime snapshot for UI and evidence. It intentionally excludes
 /// PCM, transcripts, translations, device IDs and provider credentials.
 final class HorizonTranslationRuntimeSnapshot {
@@ -66,6 +79,9 @@ final class HorizonTranslationRuntime {
       StreamController<TranscriptSegment>.broadcast();
   final StreamController<TranslationSegment> _translations =
       StreamController<TranslationSegment>.broadcast();
+  final StreamController<HorizonTranslationRuntimeTerminalEvent>
+      _terminalEvents =
+      StreamController<HorizonTranslationRuntimeTerminalEvent>.broadcast();
 
   StreamSubscription<AudioFrame>? _frameSubscription;
   StreamSubscription<TranscriptSegment>? _transcriptSubscription;
@@ -74,12 +90,17 @@ final class HorizonTranslationRuntime {
   HorizonTranslationRuntimeState _state = HorizonTranslationRuntimeState.idle;
   LiveTranslationConfig? _config;
   int _nextTurnGeneration = 0;
+  int? _ownerStartGeneration;
+  Future<void>? _terminalFuture;
+  bool _terminal = false;
   bool _disposed = false;
 
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
   Stream<TranscriptSegment> get transcripts => _transcripts.stream;
   Stream<TranslationSegment> get translations => _translations.stream;
+  Stream<HorizonTranslationRuntimeTerminalEvent> get terminalEvents =>
+      _terminalEvents.stream;
   HorizonTranslationRuntimeState get state => _state;
 
   int get _nowMicros => _clock().microsecondsSinceEpoch;
@@ -128,6 +149,9 @@ final class HorizonTranslationRuntime {
       config,
       _advanceGenerationFrom(config.session.turnGeneration),
     );
+    _terminal = false;
+    _terminalFuture = null;
+    _ownerStartGeneration = config.session.turnGeneration;
     _config = activeConfig;
     final token = activeConfig.session.executionToken;
     _setState(HorizonTranslationRuntimeState.preparing);
@@ -154,7 +178,7 @@ final class HorizonTranslationRuntime {
           unawaited(_onTranscript(segment));
         },
         onError: (Object error, StackTrace stackTrace) {
-          _fail(error, stackTrace);
+          unawaited(_fail(error, stackTrace));
         },
       );
       await _input.start(audioSession, format);
@@ -164,13 +188,12 @@ final class HorizonTranslationRuntime {
           unawaited(_onFrame(frame));
         },
         onError: (Object error, StackTrace stackTrace) {
-          _fail(error, stackTrace);
+          unawaited(_fail(error, stackTrace));
         },
       );
       _setState(HorizonTranslationRuntimeState.listening);
     } on Object catch (error, stackTrace) {
-      await _stopActiveResources();
-      _fail(error, stackTrace);
+      await _fail(error, stackTrace);
       rethrow;
     }
   }
@@ -182,10 +205,11 @@ final class HorizonTranslationRuntime {
         _state == HorizonTranslationRuntimeState.disposed) {
       return;
     }
-    _setState(HorizonTranslationRuntimeState.stopping);
-    _invalidateActiveTurn();
-    await _stopActiveResources();
-    _setState(HorizonTranslationRuntimeState.stopped);
+    if (_state == HorizonTranslationRuntimeState.failed) {
+      await _terminalFuture;
+      return;
+    }
+    await _terminate(HorizonTranslationRuntimeState.stopped);
   }
 
   Future<void> dispose() async {
@@ -201,6 +225,7 @@ final class HorizonTranslationRuntime {
     await _diagnostics.close();
     await _transcripts.close();
     await _translations.close();
+    await _terminalEvents.close();
     _state = HorizonTranslationRuntimeState.disposed;
   }
 
@@ -233,7 +258,7 @@ final class HorizonTranslationRuntime {
       }
     } on Object catch (error, stackTrace) {
       if (_isCurrent(token)) {
-        _fail(error, stackTrace);
+        await _fail(error, stackTrace);
       } else {
         _discardStale('runtime', frame.sequence, token: token);
       }
@@ -277,7 +302,7 @@ final class HorizonTranslationRuntime {
       }
     } on Object catch (error, stackTrace) {
       if (_isCurrent(token)) {
-        _fail(error, stackTrace);
+        await _fail(error, stackTrace);
       } else {
         _discardStale('stt', segment.sequence, token: token);
       }
@@ -332,25 +357,87 @@ final class HorizonTranslationRuntime {
           sequence: transcript.sequence,
           turnGeneration: token.turnGeneration,
         );
-        _fail(error, stackTrace);
+        await _fail(error, stackTrace);
       } else {
         _discardStale('runtime', transcript.sequence, token: token);
       }
     }
   }
 
-  Future<void> _stopActiveResources() async {
-    await _frameSubscription?.cancel();
-    _frameSubscription = null;
-    await _transcriptSubscription?.cancel();
-    _transcriptSubscription = null;
-    for (final subscription in _providerDiagnosticSubscriptions) {
-      await subscription.cancel();
+  Future<void> _terminate(
+    HorizonTranslationRuntimeState terminalState, {
+    RuntimeErrorCode? failureCode,
+  }) {
+    final inFlight = _terminalFuture;
+    if (inFlight != null) {
+      return inFlight;
     }
+
+    _terminal = true;
+    _setState(HorizonTranslationRuntimeState.stopping);
+    _invalidateActiveTurn();
+    _terminalFuture = _runTerminalTeardown(
+      terminalState: terminalState,
+      failureCode: failureCode,
+    );
+    return _terminalFuture!;
+  }
+
+  Future<void> _runTerminalTeardown({
+    required HorizonTranslationRuntimeState terminalState,
+    RuntimeErrorCode? failureCode,
+  }) async {
+    var secondaryFailures = 0;
+
+    Future<void> attempt(Future<void> Function() action) async {
+      try {
+        await action();
+      } on Object {
+        secondaryFailures += 1;
+      }
+    }
+
+    final frameSubscription = _frameSubscription;
+    _frameSubscription = null;
+    final transcriptSubscription = _transcriptSubscription;
+    _transcriptSubscription = null;
+    final diagnosticSubscriptions =
+        List<StreamSubscription<LiveTranslationDiagnostic>>.of(
+      _providerDiagnosticSubscriptions,
+    );
     _providerDiagnosticSubscriptions.clear();
-    await _input.stop();
-    await _stt.stop();
-    await _synthesizer.stop();
+
+    if (frameSubscription != null) {
+      await attempt(frameSubscription.cancel);
+    }
+    if (transcriptSubscription != null) {
+      await attempt(transcriptSubscription.cancel);
+    }
+    for (final subscription in diagnosticSubscriptions) {
+      await attempt(subscription.cancel);
+    }
+    await attempt(_input.stop);
+    await attempt(_stt.stop);
+    await attempt(_synthesizer.stop);
+
+    if (secondaryFailures > 0) {
+      _emitDiagnostic(
+        LiveTranslationDiagnosticCode.terminalTeardownDegraded,
+        component: 'runtime',
+      );
+    }
+    if (!_disposed) {
+      _setState(terminalState, failureCode: failureCode);
+      if (terminalState == HorizonTranslationRuntimeState.failed &&
+          failureCode != null &&
+          _ownerStartGeneration != null &&
+          !_terminalEvents.isClosed) {
+        _terminalEvents.add(HorizonTranslationRuntimeTerminalEvent(
+          startGeneration: _ownerStartGeneration!,
+          failureCode: failureCode,
+        ));
+      }
+    }
   }
 
   void _bindProviderDiagnostics(TranslationExecutionToken token) {
@@ -385,7 +472,9 @@ final class HorizonTranslationRuntime {
 
   bool _isCurrent(TranslationExecutionToken token) {
     final config = _config;
-    return config != null && config.session.executionToken.matches(token);
+    return !_terminal &&
+        config != null &&
+        config.session.executionToken.matches(token);
   }
 
   bool _matchesSessionBase(
@@ -482,15 +571,17 @@ final class HorizonTranslationRuntime {
     );
   }
 
-  void _fail(Object error, StackTrace stackTrace) {
+  Future<void> _fail(Object error, StackTrace stackTrace) async {
     if (_disposed) {
       return;
     }
     final errorCode = error is RuntimeError
         ? error.code
         : RuntimeErrorCode.providerUnavailable;
-    _invalidateActiveTurn();
-    _setState(HorizonTranslationRuntimeState.failed, failureCode: errorCode);
+    await _terminate(
+      HorizonTranslationRuntimeState.failed,
+      failureCode: errorCode,
+    );
   }
 
   void _setState(
