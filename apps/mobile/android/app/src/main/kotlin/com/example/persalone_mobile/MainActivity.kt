@@ -64,6 +64,8 @@ class MainActivity : FlutterActivity() {
     private var sttOutput: FileOutputStream? = null
     private var sttSessionId: String? = null
     private var sttStreamEpoch: Int? = null
+    private var sttTurnGeneration: Int? = null
+    private var sttLocale: String? = null
     private var sttSequence = 0
 
     private var translator: Translator? = null
@@ -125,6 +127,7 @@ class MainActivity : FlutterActivity() {
             .setMethodCallHandler { call, result ->
                 when (call.method) {
                     "prepare" -> prepareStt(call, result)
+                    "beginTurn" -> beginSttTurn(call, result)
                     "pushPcm" -> pushSttPcm(call, result)
                     "stop" -> stopStt(result)
                     else -> result.notImplemented()
@@ -453,10 +456,12 @@ class MainActivity : FlutterActivity() {
         val arguments = call.arguments as? Map<String, Any?> ?: emptyMap()
         val sessionId = arguments["sessionId"] as? String
         val streamEpoch = arguments["streamEpoch"] as? Int
+        val turnGeneration = arguments["turnGeneration"] as? Int
         val locale = arguments["locale"] as? String
         val sampleRateHz = arguments["sampleRateHz"] as? Int
         val channels = arguments["channels"] as? Int
-        if (sessionId.isNullOrBlank() || streamEpoch == null || locale.isNullOrBlank() ||
+        if (sessionId.isNullOrBlank() || streamEpoch == null || turnGeneration == null ||
+            turnGeneration < 0 || locale.isNullOrBlank() ||
             sampleRateHz != canonicalSampleRateHz || channels != canonicalChannels
         ) {
             result.error("invalid_stt_contract", "STT requires a canonical session, locale and 16 kHz mono PCM.", null)
@@ -471,7 +476,7 @@ class MainActivity : FlutterActivity() {
         stopSttInternal()
         try {
             speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).also { recognizer ->
-                recognizer.setRecognitionListener(createRecognitionListener())
+                recognizer.setRecognitionListener(createRecognitionListener(turnGeneration))
             }
             val pipe = ParcelFileDescriptor.createPipe()
             sttReadPipe = pipe[0]
@@ -479,12 +484,37 @@ class MainActivity : FlutterActivity() {
             sttOutput = FileOutputStream(sttWritePipe!!.fileDescriptor)
             sttSessionId = sessionId
             sttStreamEpoch = streamEpoch
+            sttTurnGeneration = turnGeneration
+            sttLocale = locale
             sttSequence = 0
             startListeningFromPipe(locale)
             result.success(mapOf("ready" to true, "source" to "on_device_pfd"))
         } catch (_: Exception) {
             stopSttInternal()
             result.success(mapOf("ready" to false, "reason" to "recognizer_initialization_failed"))
+        }
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun beginSttTurn(call: MethodCall, result: MethodChannel.Result) {
+        val arguments = call.arguments as? Map<String, Any?> ?: emptyMap()
+        val turnGeneration = arguments["turnGeneration"] as? Int
+        val locale = sttLocale
+        if (turnGeneration == null || turnGeneration < 0 || locale == null || sttReadPipe == null) {
+            result.error("invalid_stt_turn", "STT turn requires an active non-negative generation.", null)
+            return
+        }
+        try {
+            speechRecognizer?.cancel()
+            speechRecognizer?.destroy()
+            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this).also { recognizer ->
+                recognizer.setRecognitionListener(createRecognitionListener(turnGeneration))
+            }
+            sttTurnGeneration = turnGeneration
+            startListeningFromPipe(locale)
+            result.success(null)
+        } catch (_: Exception) {
+            result.error("stt_turn_restart_failed", "Unable to rotate the on-device STT turn.", null)
         }
     }
 
@@ -504,7 +534,7 @@ class MainActivity : FlutterActivity() {
         recognizer.startListening(intent)
     }
 
-    private fun createRecognitionListener(): RecognitionListener = object : RecognitionListener {
+    private fun createRecognitionListener(turnGeneration: Int): RecognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) = Unit
         override fun onBeginningOfSpeech() = Unit
         override fun onRmsChanged(rmsdB: Float) = Unit
@@ -514,15 +544,15 @@ class MainActivity : FlutterActivity() {
             emitSttEvent(mapOf("type" to "error", "code" to "speech_recognizer_$error"))
         }
         override fun onResults(results: Bundle?) {
-            emitRecognitionResult("final", results)
+            emitRecognitionResult("final", results, turnGeneration)
         }
         override fun onPartialResults(partialResults: Bundle?) {
-            emitRecognitionResult("partial", partialResults)
+            emitRecognitionResult("partial", partialResults, turnGeneration)
         }
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
     }
 
-    private fun emitRecognitionResult(type: String, results: Bundle?) {
+    private fun emitRecognitionResult(type: String, results: Bundle?, turnGeneration: Int) {
         val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull()
         if (text.isNullOrBlank()) return
         val confidence = results.getFloatArray(SpeechRecognizer.CONFIDENCE_SCORES)?.firstOrNull()
@@ -530,6 +560,7 @@ class MainActivity : FlutterActivity() {
             "type" to type,
             "sessionId" to (sttSessionId ?: return),
             "streamEpoch" to (sttStreamEpoch ?: return),
+            "turnGeneration" to turnGeneration,
             "sequence" to sttSequence++,
             "text" to text,
             "observedAtMicros" to System.nanoTime() / 1_000L,
@@ -578,6 +609,8 @@ class MainActivity : FlutterActivity() {
         sttWritePipe = null
         sttSessionId = null
         sttStreamEpoch = null
+        sttTurnGeneration = null
+        sttLocale = null
     }
 
     @Suppress("UNCHECKED_CAST")

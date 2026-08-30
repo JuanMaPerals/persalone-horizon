@@ -19,6 +19,7 @@ final class HorizonTranslationRuntimeSnapshot {
     required this.state,
     required this.sessionId,
     required this.streamEpoch,
+    required this.turnGeneration,
     required this.observedAtMicros,
     this.failureCode,
   });
@@ -26,6 +27,7 @@ final class HorizonTranslationRuntimeSnapshot {
   final HorizonTranslationRuntimeState state;
   final String? sessionId;
   final int? streamEpoch;
+  final int? turnGeneration;
   final int observedAtMicros;
   final RuntimeErrorCode? failureCode;
 }
@@ -71,6 +73,7 @@ final class HorizonTranslationRuntime {
       _providerDiagnosticSubscriptions = [];
   HorizonTranslationRuntimeState _state = HorizonTranslationRuntimeState.idle;
   LiveTranslationConfig? _config;
+  int _nextTurnGeneration = 0;
   bool _disposed = false;
 
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
@@ -121,19 +124,24 @@ final class HorizonTranslationRuntime {
       );
     }
 
-    _config = config;
+    final activeConfig = _withTurn(
+      config,
+      _advanceGenerationFrom(config.session.turnGeneration),
+    );
+    _config = activeConfig;
+    final token = activeConfig.session.executionToken;
     _setState(HorizonTranslationRuntimeState.preparing);
-    _bindProviderDiagnostics();
+    _bindProviderDiagnostics(token);
     try {
-      await _stt.prepare(config, format);
-      _assertCurrent(config.session);
-      await _translator.prepare(config);
-      _assertCurrent(config.session);
-      await _synthesizer.prepare(config);
-      _assertCurrent(config.session);
+      await _stt.prepare(activeConfig, format);
+      _assertCurrent(token);
+      await _translator.prepare(activeConfig);
+      _assertCurrent(token);
+      await _synthesizer.prepare(activeConfig);
+      _assertCurrent(token);
 
       final permissionGranted = await _input.requestPermission();
-      _assertCurrent(config.session);
+      _assertCurrent(token);
       if (!permissionGranted) {
         throw const RuntimeError(
           RuntimeErrorCode.policyDenied,
@@ -142,13 +150,15 @@ final class HorizonTranslationRuntime {
       }
 
       _transcriptSubscription = _stt.transcripts.listen(
-        _onTranscript,
+        (segment) {
+          unawaited(_onTranscript(segment));
+        },
         onError: (Object error, StackTrace stackTrace) {
           _fail(error, stackTrace);
         },
       );
       await _input.start(audioSession, format);
-      _assertCurrent(config.session);
+      _assertCurrent(token);
       _frameSubscription = _input.frames.listen(
         (AudioFrame frame) {
           unawaited(_onFrame(frame));
@@ -173,7 +183,7 @@ final class HorizonTranslationRuntime {
       return;
     }
     _setState(HorizonTranslationRuntimeState.stopping);
-    _config = null;
+    _invalidateActiveTurn();
     await _stopActiveResources();
     _setState(HorizonTranslationRuntimeState.stopped);
   }
@@ -196,80 +206,104 @@ final class HorizonTranslationRuntime {
 
   Future<void> _onFrame(AudioFrame frame) async {
     final config = _config;
-    if (config == null || !_isCurrent(config.session)) {
-      _emitDiagnostic(
-        LiveTranslationDiagnosticCode.staleCallbackDiscarded,
-        component: 'runtime',
-        sequence: frame.sequence,
-      );
+    if (config == null) {
+      _discardStale('runtime', frame.sequence);
+      return;
+    }
+    final token = config.session.executionToken;
+    if (!_isCurrent(token)) {
+      _discardStale('runtime', frame.sequence, token: token);
       return;
     }
     if (frame.direction != AudioDirection.input ||
-        frame.session.sessionId != config.session.sessionId ||
-        frame.session.streamEpoch != config.session.streamEpoch) {
+        frame.session.sessionId != token.sessionId ||
+        frame.session.streamEpoch != token.streamEpoch) {
       _emitDiagnostic(
         LiveTranslationDiagnosticCode.frameRejected,
         component: 'runtime',
         sequence: frame.sequence,
+        turnGeneration: token.turnGeneration,
       );
       return;
     }
     try {
       await _stt.push(frame);
+      if (!_isCurrent(token)) {
+        _discardStale('runtime', frame.sequence, token: token);
+      }
     } on Object catch (error, stackTrace) {
-      if (_isCurrent(config.session)) {
+      if (_isCurrent(token)) {
         _fail(error, stackTrace);
       } else {
-        _emitDiagnostic(
-          LiveTranslationDiagnosticCode.staleCallbackDiscarded,
-          component: 'runtime',
-          sequence: frame.sequence,
-        );
+        _discardStale('runtime', frame.sequence, token: token);
       }
     }
   }
 
-  void _onTranscript(TranscriptSegment segment) {
+  Future<void> _onTranscript(TranscriptSegment segment) async {
     final config = _config;
-    if (config == null || !_matches(segment.session, config.session)) {
-      _emitDiagnostic(
-        LiveTranslationDiagnosticCode.staleCallbackDiscarded,
-        component: 'stt',
-        sequence: segment.sequence,
-      );
+    if (config == null ||
+        !_matchesSessionBase(segment.session, config.session)) {
+      _discardStale('stt', segment.sequence);
       return;
     }
-    _transcripts.add(segment);
-    _emitDiagnostic(
-      segment.stability == TranscriptStability.partial
-          ? LiveTranslationDiagnosticCode.transcriptPartial
-          : LiveTranslationDiagnosticCode.transcriptFinal,
-      component: 'stt',
-      sequence: segment.sequence,
-    );
-    if (segment.stability == TranscriptStability.finalResult &&
-        segment.text.trim().isNotEmpty) {
-      unawaited(_translateAndSpeak(segment));
+
+    final token = segment.stability == TranscriptStability.finalResult &&
+            segment.text.trim().isNotEmpty
+        ? _advanceTurn()
+        : config.session.executionToken;
+    try {
+      if (segment.stability == TranscriptStability.finalResult &&
+          segment.text.trim().isNotEmpty) {
+        await _stt.beginTurn(token);
+        if (!_isCurrent(token)) {
+          _discardStale('stt', segment.sequence, token: token);
+          return;
+        }
+      }
+      final capturedSegment = _withToken(segment, token);
+      _transcripts.add(capturedSegment);
+      _emitDiagnostic(
+        capturedSegment.stability == TranscriptStability.partial
+            ? LiveTranslationDiagnosticCode.transcriptPartial
+            : LiveTranslationDiagnosticCode.transcriptFinal,
+        component: 'stt',
+        sequence: capturedSegment.sequence,
+        turnGeneration: token.turnGeneration,
+      );
+      if (capturedSegment.stability == TranscriptStability.finalResult &&
+          capturedSegment.text.trim().isNotEmpty) {
+        unawaited(_translateAndSpeak(capturedSegment, token));
+      }
+    } on Object catch (error, stackTrace) {
+      if (_isCurrent(token)) {
+        _fail(error, stackTrace);
+      } else {
+        _discardStale('stt', segment.sequence, token: token);
+      }
     }
   }
 
-  Future<void> _translateAndSpeak(TranscriptSegment transcript) async {
-    final session = transcript.session;
-    if (!_isCurrent(session)) {
-      _discardStale('runtime', transcript.sequence);
+  Future<void> _translateAndSpeak(
+    TranscriptSegment transcript,
+    TranslationExecutionToken token,
+  ) async {
+    if (!_isCurrent(token)) {
+      _discardStale('runtime', transcript.sequence, token: token);
       return;
     }
     try {
-      // A new final turn interrupts prior synthesis before its own translation
-      // can be spoken. This is the G5 barge-in boundary.
+      // A new accepted final increments [turnGeneration] before this await, so
+      // all work for an earlier turn becomes stale before it can speak.
       await _synthesizer.stop();
-      if (!_isCurrent(session)) {
-        _discardStale('tts', transcript.sequence);
+      if (!_isCurrent(token)) {
+        _discardStale('tts', transcript.sequence, token: token);
         return;
       }
       final translation = await _translator.translate(transcript);
-      if (!_isCurrent(session) || !_matches(translation.session, session)) {
-        _discardStale('translation', transcript.sequence);
+      if (!_isCurrent(token) ||
+          !translation.session.executionToken.matches(token)) {
+        _discardStale('translation', transcript.sequence, token: token);
         return;
       }
       _translations.add(translation);
@@ -277,24 +311,30 @@ final class HorizonTranslationRuntime {
         LiveTranslationDiagnosticCode.translationCompleted,
         component: 'translation',
         sequence: translation.sequence,
+        turnGeneration: token.turnGeneration,
       );
+      if (!_isCurrent(token)) {
+        _discardStale('tts', translation.sequence, token: token);
+        return;
+      }
       await _synthesizer.speak(translation);
-      if (!_isCurrent(session)) {
-        _discardStale('tts', translation.sequence);
+      if (!_isCurrent(token)) {
+        _discardStale('tts', translation.sequence, token: token);
         return;
       }
       // Completion is emitted only by the platform TTS progress callback. A
       // successful speak call merely confirms that Android accepted the queue.
     } on Object catch (error, stackTrace) {
-      if (_isCurrent(session)) {
+      if (_isCurrent(token)) {
         _emitDiagnostic(
           LiveTranslationDiagnosticCode.synthesisFailed,
           component: 'runtime',
           sequence: transcript.sequence,
+          turnGeneration: token.turnGeneration,
         );
         _fail(error, stackTrace);
       } else {
-        _discardStale('runtime', transcript.sequence);
+        _discardStale('runtime', transcript.sequence, token: token);
       }
     }
   }
@@ -313,7 +353,7 @@ final class HorizonTranslationRuntime {
     await _synthesizer.stop();
   }
 
-  void _bindProviderDiagnostics() {
+  void _bindProviderDiagnostics(TranslationExecutionToken token) {
     if (_providerDiagnosticSubscriptions.isNotEmpty) {
       return;
     }
@@ -322,34 +362,123 @@ final class HorizonTranslationRuntime {
       _translator.diagnostics,
       _synthesizer.diagnostics
     ]) {
-      _providerDiagnosticSubscriptions.add(provider.listen(_diagnostics.add));
+      _providerDiagnosticSubscriptions.add(provider.listen(
+        (diagnostic) {
+          final current = _config?.session.executionToken;
+          final isCurrent = current != null &&
+              (diagnostic.turnGeneration != null
+                  ? diagnostic.turnGeneration == current.turnGeneration
+                  : current.matches(token));
+          if (!isCurrent) {
+            _discardStale(
+              'provider',
+              diagnostic.sequence ?? 0,
+              token: token,
+            );
+            return;
+          }
+          _diagnostics.add(diagnostic);
+        },
+      ));
     }
   }
 
-  bool _isCurrent(TranslationSession session) {
+  bool _isCurrent(TranslationExecutionToken token) {
     final config = _config;
-    return config != null && _matches(session, config.session);
+    return config != null && config.session.executionToken.matches(token);
   }
 
-  bool _matches(TranslationSession first, TranslationSession second) =>
+  bool _matchesSessionBase(
+          TranslationSession first, TranslationSession second) =>
       first.sessionId == second.sessionId &&
       first.streamEpoch == second.streamEpoch &&
       first.privacyGeneration == second.privacyGeneration;
 
-  void _assertCurrent(TranslationSession session) {
-    if (!_isCurrent(session)) {
+  void _assertCurrent(TranslationExecutionToken token) {
+    if (!_isCurrent(token)) {
       throw const RuntimeError(
         RuntimeErrorCode.staleStreamEpoch,
-        'A lifecycle operation completed after its session was no longer current.',
+        'A lifecycle operation completed after its execution token was inactive.',
       );
     }
   }
 
-  void _discardStale(String component, int sequence) {
+  TranslationExecutionToken _advanceTurn() {
+    final config = _config;
+    if (config == null) {
+      throw const RuntimeError(
+        RuntimeErrorCode.sessionClosed,
+        'No active translation session can advance a turn.',
+      );
+    }
+    final nextTurn = _advanceGenerationFrom(config.session.turnGeneration);
+    _config = _withTurn(config, nextTurn);
+    return _config!.session.executionToken;
+  }
+
+  void _invalidateActiveTurn() {
+    final config = _config;
+    if (config == null) {
+      return;
+    }
+    _config = _withTurn(
+      config,
+      _advanceGenerationFrom(config.session.turnGeneration),
+    );
+    _config = null;
+  }
+
+  int _advanceGenerationFrom(int requestedGeneration) {
+    _nextTurnGeneration = _nextTurnGeneration >= requestedGeneration
+        ? _nextTurnGeneration + 1
+        : requestedGeneration + 1;
+    return _nextTurnGeneration;
+  }
+
+  LiveTranslationConfig _withTurn(LiveTranslationConfig config, int turn) =>
+      LiveTranslationConfig(
+        session: TranslationSession(
+          sessionId: config.session.sessionId,
+          streamEpoch: config.session.streamEpoch,
+          direction: config.session.direction,
+          privacyGeneration: config.session.privacyGeneration,
+          turnGeneration: turn,
+        ),
+        sourceLocale: config.sourceLocale,
+        targetLocale: config.targetLocale,
+        consent: config.consent,
+      );
+
+  TranscriptSegment _withToken(
+    TranscriptSegment segment,
+    TranslationExecutionToken token,
+  ) =>
+      TranscriptSegment(
+        session: TranslationSession(
+          sessionId: token.sessionId,
+          streamEpoch: token.streamEpoch,
+          direction: segment.session.direction,
+          privacyGeneration: token.privacyGeneration,
+          turnGeneration: token.turnGeneration,
+        ),
+        sequence: segment.sequence,
+        text: segment.text,
+        stability: segment.stability,
+        observedAtMicros: segment.observedAtMicros,
+        truthLabel: segment.truthLabel,
+        confidence: segment.confidence,
+      );
+
+  void _discardStale(
+    String component,
+    int sequence, {
+    TranslationExecutionToken? token,
+  }) {
     _emitDiagnostic(
       LiveTranslationDiagnosticCode.staleCallbackDiscarded,
       component: component,
       sequence: sequence,
+      turnGeneration: token?.turnGeneration,
     );
   }
 
@@ -360,6 +489,7 @@ final class HorizonTranslationRuntime {
     final errorCode = error is RuntimeError
         ? error.code
         : RuntimeErrorCode.providerUnavailable;
+    _invalidateActiveTurn();
     _setState(HorizonTranslationRuntimeState.failed, failureCode: errorCode);
   }
 
@@ -374,6 +504,7 @@ final class HorizonTranslationRuntime {
         state: state,
         sessionId: config?.session.sessionId,
         streamEpoch: config?.session.streamEpoch,
+        turnGeneration: config?.session.turnGeneration,
         observedAtMicros: _nowMicros,
         failureCode: failureCode,
       ));
@@ -384,6 +515,7 @@ final class HorizonTranslationRuntime {
     LiveTranslationDiagnosticCode code, {
     required String component,
     int? sequence,
+    int? turnGeneration,
   }) {
     if (!_diagnostics.isClosed) {
       _diagnostics.add(LiveTranslationDiagnostic(
@@ -391,6 +523,7 @@ final class HorizonTranslationRuntime {
         component: component,
         observedAtMicros: _nowMicros,
         sequence: sequence,
+        turnGeneration: turnGeneration,
       ));
     }
   }

@@ -24,6 +24,7 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       StreamController<TranscriptSegment>.broadcast();
   StreamSubscription<Map<Object?, Object?>>? _events;
   LiveTranslationConfig? _config;
+  TranslationExecutionToken? _token;
   bool _disposed = false;
 
   @override
@@ -61,11 +62,13 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       );
     }
     _config = config;
+    _token = config.session.executionToken;
     _emitSnapshot(ProviderReadiness.preparing, TruthLabel.prepared);
     try {
       final result = await _bridge.prepareStt(
         sessionId: config.session.sessionId,
         streamEpoch: config.session.streamEpoch,
+        turnGeneration: config.session.turnGeneration,
         locale: config.sourceLocale,
         sampleRateHz: format.sampleRateHz,
         channels: format.channels,
@@ -93,6 +96,22 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       _emitUnavailable();
       rethrow;
     }
+  }
+
+  @override
+  Future<void> beginTurn(TranslationExecutionToken token) async {
+    final config = _config;
+    if (config == null ||
+        token.sessionId != config.session.sessionId ||
+        token.streamEpoch != config.session.streamEpoch ||
+        token.privacyGeneration != config.session.privacyGeneration) {
+      throw const RuntimeError(
+        RuntimeErrorCode.staleStreamEpoch,
+        'STT cannot begin a turn for an inactive session generation.',
+      );
+    }
+    _token = token;
+    await _bridge.beginSttTurn(turnGeneration: token.turnGeneration);
   }
 
   @override
@@ -128,6 +147,7 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
   @override
   Future<void> stop() async {
     _config = null;
+    _token = null;
     await _events?.cancel();
     _events = null;
     try {
@@ -151,7 +171,8 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
 
   void _handleEvent(Map<Object?, Object?> event) {
     final config = _config;
-    if (config == null) {
+    final token = _token;
+    if (config == null || token == null) {
       return;
     }
     final type = event['type'];
@@ -164,9 +185,12 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
     }
     final eventSessionId = event['sessionId'];
     final eventEpoch = event['streamEpoch'];
+    final eventTurn = event['turnGeneration'];
     if (eventSessionId != config.session.sessionId ||
         eventEpoch is! int ||
-        eventEpoch != config.session.streamEpoch) {
+        eventEpoch != token.streamEpoch ||
+        eventTurn is! int ||
+        eventTurn != token.turnGeneration) {
       _emitDiagnostic(LiveTranslationDiagnosticCode.staleCallbackDiscarded);
       return;
     }
@@ -179,7 +203,13 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
     final observedAt = event['observedAtMicros'];
     final confidence = event['confidence'];
     _transcripts.add(TranscriptSegment(
-      session: config.session,
+      session: TranslationSession(
+        sessionId: token.sessionId,
+        streamEpoch: token.streamEpoch,
+        direction: config.session.direction,
+        privacyGeneration: token.privacyGeneration,
+        turnGeneration: token.turnGeneration,
+      ),
       sequence: sequence,
       text: text,
       stability: type == 'partial'
