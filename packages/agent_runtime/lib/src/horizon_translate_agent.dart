@@ -7,6 +7,8 @@ import 'agent_runtime.dart';
 /// It has no API for audio frames, transcripts, translations, provider tokens or
 /// device identifiers.
 abstract interface class TranslationSessionController {
+  Stream<HorizonTranslationRuntimeTerminalEvent> get terminalEvents;
+
   Future<void> start({
     required LiveTranslationConfig config,
     required AudioSessionDescriptor audioSession,
@@ -23,6 +25,10 @@ final class HorizonTranslationSessionController
   HorizonTranslationSessionController(this._runtime);
 
   final HorizonTranslationRuntime _runtime;
+
+  @override
+  Stream<HorizonTranslationRuntimeTerminalEvent> get terminalEvents =>
+      _runtime.terminalEvents;
 
   @override
   Future<void> start({
@@ -92,10 +98,29 @@ final class HorizonTranslateAgent implements AgentController {
   final TranslationSessionController _sessionController;
   final LiveTranslationConfigForSession _configForSession;
   final AudioSessionForAgent _audioSessionFor;
+  int _nextStartGeneration = 0;
+  int? _activeStartGeneration;
   bool _disposed = false;
 
   @override
   AgentManifest get manifest => HorizonTranslateAgent.horizonManifest;
+
+  @override
+  Stream<AgentControllerTerminalEvent> get terminalEvents =>
+      _sessionController.terminalEvents.map(
+        (event) => AgentControllerTerminalEvent(
+          agentId: HorizonTranslateAgent.agentId,
+          streamEpoch: _activeContext?.session.streamEpoch ?? -1,
+          privacyGeneration: _activeContext?.session.privacyGeneration ?? -1,
+          startGeneration: _activeStartGeneration ?? -1,
+          failureCode: event.failureCode,
+        ),
+      );
+
+  @override
+  int? get activeStartGeneration => _activeStartGeneration;
+
+  AgentSessionContext? _activeContext;
 
   @override
   Future<void> start(AgentSessionContext context) async {
@@ -112,13 +137,28 @@ final class HorizonTranslateAgent implements AgentController {
         'G5 session configuration must match the authorized agent session.',
       );
     }
-    await _sessionController.start(config: config, audioSession: audioSession);
+    _activeContext = context;
+    _nextStartGeneration += 1;
+    _activeStartGeneration = _nextStartGeneration;
+    try {
+      await _sessionController.start(
+          config: config, audioSession: audioSession);
+    } on Object {
+      _activeContext = null;
+      _activeStartGeneration = null;
+      rethrow;
+    }
   }
 
   @override
   Future<void> stop(AgentSessionContext context) async {
     _ensureActive();
-    await _sessionController.stop();
+    try {
+      await _sessionController.stop();
+    } finally {
+      _activeContext = null;
+      _activeStartGeneration = null;
+    }
   }
 
   @override
@@ -127,6 +167,8 @@ final class HorizonTranslateAgent implements AgentController {
       return;
     }
     _disposed = true;
+    _activeContext = null;
+    _activeStartGeneration = null;
     await _sessionController.dispose();
   }
 

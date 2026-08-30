@@ -345,6 +345,9 @@ void main() {
         translator: translator,
         synthesizer: tts,
       );
+      final terminalEvents = <HorizonTranslationRuntimeTerminalEvent>[];
+      final terminalSubscription =
+          runtime.terminalEvents.listen(terminalEvents.add);
       final config = _config();
       await runtime.start(config: config, audioSession: _audioSession());
       stt.transcriptController.add(
@@ -355,6 +358,114 @@ void main() {
 
       expect(runtime.state, HorizonTranslationRuntimeState.failed);
       expect(tts.spoken, isEmpty);
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 2);
+      expect(terminalEvents, hasLength(1));
+      expect(terminalEvents.single.startGeneration, 0);
+      expect(
+        terminalEvents.single.failureCode,
+        RuntimeErrorCode.providerUnavailable,
+      );
+      await runtime.stop();
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 2);
+      await terminalSubscription.cancel();
+      await runtime.dispose();
+    });
+
+    test('continues terminal teardown after secondary provider failures',
+        () async {
+      final input = _FakeInput()..failStop = true;
+      final stt = _FakeStt()..failStop = true;
+      final translator = _FakeTranslator()..holdResults = true;
+      final tts = _FakeTts();
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      final subscription = runtime.diagnostics.listen(diagnostics.add);
+      final config = _config();
+
+      await runtime.start(config: config, audioSession: _audioSession());
+      stt.transcriptController.add(
+        _transcript(config.session, 61, TranscriptStability.finalResult),
+      );
+      await _drain();
+      translator.fail(0);
+      await _drain();
+
+      expect(runtime.state, HorizonTranslationRuntimeState.failed);
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 2);
+      expect(
+        diagnostics.where(
+          (event) =>
+              event.code ==
+                  LiveTranslationDiagnosticCode.terminalTeardownDegraded &&
+              event.detail == null,
+        ),
+        hasLength(1),
+      );
+      await subscription.cancel();
+      await runtime.dispose();
+    });
+
+    test('terminates all resources after an STT push failure', () async {
+      final input = _FakeInput();
+      final stt = _FakeStt()..failPush = true;
+      final translator = _FakeTranslator();
+      final tts = _FakeTts();
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+
+      await runtime.start(config: _config(), audioSession: _audioSession());
+      input.framesController.add(_frame());
+      await _drain();
+
+      expect(runtime.state, HorizonTranslationRuntimeState.failed);
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 1);
+      await runtime.dispose();
+    });
+
+    test('terminates all resources after a TTS speak failure', () async {
+      final input = _FakeInput();
+      final stt = _FakeStt();
+      final translator = _FakeTranslator();
+      final tts = _FakeTts()..failSpeak = true;
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      final subscription = runtime.diagnostics.listen(diagnostics.add);
+      final config = _config();
+
+      await runtime.start(config: config, audioSession: _audioSession());
+      stt.transcriptController.add(
+        _transcript(config.session, 62, TranscriptStability.finalResult),
+      );
+      await _drain();
+
+      expect(runtime.state, HorizonTranslationRuntimeState.failed);
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 2);
+      expect(diagnostics.every((event) => event.detail == null), isTrue);
+      await subscription.cancel();
       await runtime.dispose();
     });
 
@@ -453,6 +564,8 @@ final class _FakeInput implements AudioInputAdapter {
   final _diagnostics = StreamController<AudioDiagnostic>.broadcast();
   final _latencies = StreamController<AudioLatencyMeasurement>.broadcast();
   int requestPermissionCalls = 0;
+  int stopCalls = 0;
+  bool failStop = false;
 
   @override
   String get adapterId => 'fake-input';
@@ -476,7 +589,16 @@ final class _FakeInput implements AudioInputAdapter {
   Future<void> start(
       AudioSessionDescriptor session, AudioFormat format) async {}
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stopCalls += 1;
+    if (failStop) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled input stop failure.',
+      );
+    }
+  }
+
   @override
   Future<void> dispose() async {
     await framesController.close();
@@ -492,6 +614,9 @@ final class _FakeStt implements StreamingSttProvider {
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
   int prepareCalls = 0;
   int pushedFrames = 0;
+  int stopCalls = 0;
+  bool failStop = false;
+  bool failPush = false;
   final begunTurns = <TranslationExecutionToken>[];
 
   @override
@@ -517,10 +642,25 @@ final class _FakeStt implements StreamingSttProvider {
   @override
   Future<void> push(AudioFrame frame) async {
     pushedFrames += 1;
+    if (failPush) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled STT push failure.',
+      );
+    }
   }
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stopCalls += 1;
+    if (failStop) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled STT stop failure.',
+      );
+    }
+  }
+
   @override
   Future<void> dispose() async {
     await transcriptController.close();
@@ -596,6 +736,8 @@ final class _FakeTts implements SpeechSynthesisProvider {
   final spoken = <TranslationSegment>[];
   final pendingSpeaks = <Completer<void>>[];
   bool holdSpeak = false;
+  bool failStop = false;
+  bool failSpeak = false;
   int prepareCalls = 0;
   int stopCalls = 0;
 
@@ -615,6 +757,12 @@ final class _FakeTts implements SpeechSynthesisProvider {
   @override
   Future<void> speak(TranslationSegment segment) async {
     spoken.add(segment);
+    if (failSpeak) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled TTS speak failure.',
+      );
+    }
     if (holdSpeak) {
       final completion = Completer<void>();
       pendingSpeaks.add(completion);
@@ -627,6 +775,12 @@ final class _FakeTts implements SpeechSynthesisProvider {
   @override
   Future<void> stop() async {
     stopCalls += 1;
+    if (failStop) {
+      throw const RuntimeError(
+        RuntimeErrorCode.providerUnavailable,
+        'Controlled TTS stop failure.',
+      );
+    }
   }
 
   @override
