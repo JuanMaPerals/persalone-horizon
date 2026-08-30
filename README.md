@@ -17,21 +17,21 @@
 
 The first product agent is **HORIZON Translate**: a bidirectional English ↔ Spanish conversation agent. **Halo is the first hardware target, not the limit of the product.** The core contracts are intended to support future wearable, mobile, accessibility, vision, meeting, assist, and community-built agents without treating a particular device or cloud provider as the product itself.
 
-> **Current truth:** HORIZON has a prepared governance and mobile-contract foundation. It does **not** yet claim Halo BLE connectivity, microphone capture, speaker playback, translation, real-time duplex audio, AEC, provider integration, agent execution, OTA, or physical hardware evidence.
+> **Current truth:** HORIZON has a prepared governance, canonical-contract and Android-host-audio foundation. It does **not** yet claim Halo BLE connectivity, physical microphone or speaker evidence, end-to-end translation, real-time duplex audio, AEC, provider evidence, agent execution, OTA, or physical hardware evidence.
 
 ## Verified state
 
 | Gate | Status | What is verifiably present | What is not claimed |
 |---|---|---|---|
-| **G0 — Governance & security baseline** | `PREPARED` | Contribution and security policies, a repository preflight, CI definitions, secret scanning, SBOM generation, and local checks. | GitHub branch protection and private vulnerability reporting still require owner activation. |
-| **G1 — Flutter & canonical contracts** | `PREPARED` | Minimal Android/iOS Flutter shell, versioned Dart contracts, truth labels, typed errors, and local tests. | No physical device adapter or enabled device capability. |
-| **G2 — Halo integration** | `BLOCKED` | No Halo transport has been integrated. | Discovery, pairing, identity, battery, Lua, USERDATA, or connected state. |
-| **G3 — Input audio** | `BLOCKED` | No capture path is enabled. | Microphone availability, latency, dropped-frame, or device evidence. |
-| **G4 — Output audio** | `BLOCKED` | No playback path is enabled. | Speaker availability, underrun, output latency, or audible acceptance. |
-| **G5 — Translation** | `BLOCKED` | No STT, translation, TTS, or provider path is enabled. | End-to-end English ↔ Spanish translation. |
-| **G6 — Duplex, AEC & barge-in** | `BLOCKED` | No simultaneous audio route is enabled. | Full duplex, echo cancellation, interruption, or endurance. |
-| **G7 — Agent runtime** | `BLOCKED` | No agent receives implicit device or data access. | Agent lifecycle, tools, memory, or permissions execution. |
-| **G8 — Release & community readiness** | `BLOCKED` | The repository remains private. | Store distribution, public release, or a production-ready community preview. |
+| **G0 — Governance & security baseline** | `PREPARED` | Contribution/security policies, preflight, CI definitions, secret scanning, SBOM generation and a `main` ruleset confirmed by the owner. | One approval and required `verify`, `secret-scan`, `sbom` are documented hardening pending; private vulnerability reporting remains owner-configured. |
+| **G1 — Flutter & canonical contracts** | `PREPARED` | Android/iOS Flutter shell, versioned Dart contracts, truth labels, typed errors and local tests. | No physical device evidence. |
+| **G2 — Halo integration** | `PREPARED` | Fail-closed Halo adapter boundary, upstream decision and deterministic fixture. | Discovery, pairing, identity, battery, Lua, USERDATA or connected Halo state. |
+| **G3 — Input audio** | `PREPARED` | Android host capture path, runtime permission flow, PCM/timestamp diagnostics and physical-validation procedure. | Reproducible Android microphone, latency, drop-frame or device evidence. |
+| **G4 — Output audio** | `PREPARED` | Android host playback path, backpressure/underrun diagnostics and physical-validation procedure. | Reproducible Android speaker, output-latency or audible acceptance evidence. |
+| **G5 — Translation** | `BLOCKED` | No STT, translation, TTS or provider path is present in this merged baseline. | End-to-end English ↔ Spanish translation. |
+| **G6 — Duplex, AEC & barge-in** | `BLOCKED` | No simultaneous audio route is enabled in this merged baseline. | Full duplex, echo cancellation, interruption or endurance. |
+| **G7 — Agent runtime** | `BLOCKED` | No agent receives implicit device or data access. | Agent lifecycle, tools, memory or permission execution. |
+| **G8 — Release & community readiness** | `PREPARED` | Repository is intentionally public with community/security contribution workflow. | Store distribution or a production-ready release. |
 
 The distinction is intentional. HORIZON counts **accepted, reproducible functionality**, never code volume, screenshots, acknowledgements, or vendor claims.
 

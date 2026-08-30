@@ -16,6 +16,14 @@ Select the highest state actually demonstrated by this PR:
 
 List exact commands, devices, fixtures or measurements used.
 
+## Dependency chain
+
+- Base branch / PR:
+- [ ] This PR is independent of other open PRs, or its dependency is named above.
+- [ ] After a dependency merge, I will retarget or rebase this PR before merge.
+- [ ] I compared the resulting diff and recorded any semantic change or conflict.
+- [ ] I did not squash, overwrite, or discard reproducible evidence while reconciling history.
+
 ## Security & privacy
 
 - [ ] No secrets or credentials committed
