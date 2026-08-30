@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:persalone_agent_runtime/persalone_agent_runtime.dart';
 import 'package:persalone_audio_adapters/persalone_audio_adapters.dart';
 import 'package:persalone_contracts/persalone_contracts.dart';
 import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
@@ -10,9 +11,9 @@ void main() {
   runApp(const PersalOneApp());
 }
 
-/// Android-first shell. It exposes separate G3/G4 evidence controls and the G5
-/// live path, but never promotes a capability to MEASURED without the documented
-/// reproducible physical validation.
+/// Android-first product shell. Each card presents the state observable from
+/// the running app and preserves PREPARED/BLOCKED labels until physical evidence
+/// exists. It never manufactures device connections, transcripts or latency.
 class PersalOneApp extends StatelessWidget {
   const PersalOneApp({super.key});
 
@@ -20,20 +21,24 @@ class PersalOneApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'PersalOne HORIZON',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo),
-      home: const AndroidHostAudioScreen(),
+      theme: ThemeData(
+        colorSchemeSeed: Colors.indigo,
+        brightness: Brightness.dark,
+        useMaterial3: true,
+      ),
+      home: const HorizonProductScreen(),
     );
   }
 }
 
-class AndroidHostAudioScreen extends StatefulWidget {
-  const AndroidHostAudioScreen({super.key});
+class HorizonProductScreen extends StatefulWidget {
+  const HorizonProductScreen({super.key});
 
   @override
-  State<AndroidHostAudioScreen> createState() => _AndroidHostAudioScreenState();
+  State<HorizonProductScreen> createState() => _HorizonProductScreenState();
 }
 
-class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
+class _HorizonProductScreenState extends State<HorizonProductScreen> {
   static const AudioFormat _format = AudioFormat.voice16kMono;
   static const int _maxSampleBytes = 32000;
   static final Stopwatch _clock = Stopwatch()..start();
@@ -43,7 +48,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   late final AndroidSpeechRecognizerProvider _stt;
   late final MlKitOnDeviceTranslatorProvider _translator;
   late final AndroidTextToSpeechProvider _tts;
-  late final HorizonTranslationRuntime _runtime;
+  late final HorizonTranslationRuntime _translationRuntime;
+  late final PersalOneAgentRuntime _agentRuntime;
+  late final HorizonTranslateAgent _translateAgent;
   final BytesBuilder _sample = BytesBuilder(copy: false);
 
   StreamSubscription<AudioFrame>? _frameSubscription;
@@ -53,22 +60,33 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   StreamSubscription<TranslationSegment>? _translationSubscription;
   StreamSubscription<LiveTranslationDiagnostic>? _runtimeDiagnosticSubscription;
   StreamSubscription<ProviderSnapshot>? _translationSnapshotSubscription;
+  StreamSubscription<AgentRegistration>? _agentRegistrationSubscription;
+  StreamSubscription<AgentAuditEvent>? _agentAuditSubscription;
+  StreamSubscription<AgentDiagnostic>? _agentDiagnosticSubscription;
 
+  AgentSessionContext? _activeAgentContext;
   bool _permissionGranted = false;
   bool _capturing = false;
   bool _playing = false;
   bool _liveRunning = false;
   bool _localConsent = false;
   bool _modelDownloadConsent = false;
+  bool? _inputTimestampAvailable;
+  bool? _outputTimestampAvailable;
   int _inputFrames = 0;
   int _inputDrops = 0;
   int _outputWrites = 0;
   int _underruns = 0;
   int _staleCallbacks = 0;
+  int _agentAuditEvents = 0;
+  int _agentDiagnostics = 0;
   TranslationDirection _direction = TranslationDirection.englishToSpanish;
-  String _status = 'Preparado para validar audio Android con evidencia real.';
-  String _liveStatus = 'G5 PREPARED — requiere ensayo físico Android.';
+  AgentLifecycleState _agentState = AgentLifecycleState.discovered;
+  String _status = 'Sin ensayo físico ejecutado.';
+  String _liveStatus =
+      'G5 PREPARED — requiere consentimiento y ensayo Android.';
   String _modelStatus = 'No preparado';
+  String _agentStatus = 'Registrando manifiesto local.';
   String _partialTranscript = '';
   String _finalTranscript = '';
   String _translation = '';
@@ -83,12 +101,25 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _stt = AndroidSpeechRecognizerProvider(bridge: translationBridge);
     _translator = MlKitOnDeviceTranslatorProvider(bridge: translationBridge);
     _tts = AndroidTextToSpeechProvider(bridge: translationBridge);
-    _runtime = HorizonTranslationRuntime(
+    _translationRuntime = HorizonTranslationRuntime(
       input: _microphone,
       stt: _stt,
       translator: _translator,
       synthesizer: _tts,
     );
+    _agentRuntime = PersalOneAgentRuntime(
+      capabilityResolver: _AndroidHostCapabilityResolver(
+        microphonePermissionGranted: () => _permissionGranted,
+      ),
+      providerResolver: const _LocalTranslationProviderResolver(),
+    );
+    _translateAgent = HorizonTranslateAgent(
+      sessionController:
+          HorizonTranslationSessionController(_translationRuntime),
+      configForSession: _translationConfigFor,
+      audioSessionFor: _audioSessionFor,
+    );
+
     _frameSubscription = _microphone.frames.listen(_collectInputFrame);
     _inputDiagnosticSubscription = _microphone.diagnostics.listen(
       _observeInputDiagnostic,
@@ -96,15 +127,28 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _outputDiagnosticSubscription = _speaker.diagnostics.listen(
       _observeOutputDiagnostic,
     );
-    _transcriptSubscription = _runtime.transcripts.listen(_observeTranscript);
-    _translationSubscription =
-        _runtime.translations.listen(_observeTranslation);
-    _runtimeDiagnosticSubscription = _runtime.diagnostics.listen(
+    _transcriptSubscription = _translationRuntime.transcripts.listen(
+      _observeTranscript,
+    );
+    _translationSubscription = _translationRuntime.translations.listen(
+      _observeTranslation,
+    );
+    _runtimeDiagnosticSubscription = _translationRuntime.diagnostics.listen(
       _observeRuntimeDiagnostic,
     );
     _translationSnapshotSubscription = _translator.snapshots.listen(
       _observeTranslationSnapshot,
     );
+    _agentRegistrationSubscription = _agentRuntime.registrations.listen(
+      _observeAgentRegistration,
+    );
+    _agentAuditSubscription = _agentRuntime.auditEvents.listen(
+      _observeAgentAudit,
+    );
+    _agentDiagnosticSubscription = _agentRuntime.diagnostics.listen(
+      _observeAgentDiagnostic,
+    );
+    unawaited(_registerTranslateAgent());
   }
 
   @override
@@ -116,10 +160,24 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _translationSubscription?.cancel();
     _runtimeDiagnosticSubscription?.cancel();
     _translationSnapshotSubscription?.cancel();
-    _runtime.dispose();
+    _agentRegistrationSubscription?.cancel();
+    _agentAuditSubscription?.cancel();
+    _agentDiagnosticSubscription?.cancel();
+    _agentRuntime.dispose();
     _microphone.dispose();
     _speaker.dispose();
     super.dispose();
+  }
+
+  Future<void> _registerTranslateAgent() async {
+    try {
+      await _agentRuntime.register(_translateAgent);
+      if (!mounted) return;
+      setState(() => _agentStatus = 'Manifiesto registrado — PREPARED.');
+    } on RuntimeError catch (error) {
+      if (!mounted) return;
+      setState(() => _agentStatus = 'Registro bloqueado: ${error.code.name}.');
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -129,8 +187,8 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       setState(() {
         _permissionGranted = granted;
         _status = granted
-            ? 'Permiso concedido. La captura sigue PREPARED hasta el ensayo físico.'
-            : 'Se necesita permiso de micrófono para G3 y G5.';
+            ? 'Permiso concedido. G3/G4 siguen PREPARED hasta ensayo físico.'
+            : 'Permiso denegado. G3 y G5 quedan bloqueados.';
       });
     } catch (error) {
       _setFailure('No se pudo solicitar permiso: ${error.runtimeType}.');
@@ -145,7 +203,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         setState(() {
           _capturing = false;
           _status = _sample.length > 0
-              ? 'Captura detenida. Hay una muestra real local lista para reproducir.'
+              ? 'Captura detenida; muestra local acotada lista para G4.'
               : 'Captura detenida sin frames PCM válidos.';
         });
       } catch (error) {
@@ -158,6 +216,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       _sample.clear();
       _inputFrames = 0;
       _inputDrops = 0;
+      _inputTimestampAvailable = null;
       final session = AudioSessionDescriptor(
         sessionId: 'android-host-audio-check',
         streamEpoch: DateTime.now().microsecondsSinceEpoch,
@@ -167,8 +226,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       if (!mounted) return;
       setState(() {
         _capturing = true;
-        _status =
-            'Capturando PCM real desde el micrófono Android. No se guarda en disco.';
+        _status = 'Capturando PCM real; no se escribe audio en disco.';
       });
     } catch (error) {
       _setFailure('No se pudo iniciar la captura: ${error.runtimeType}.');
@@ -217,8 +275,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       if (!mounted) return;
       setState(() {
         _playing = false;
-        _status =
-            'Reproducción completada. Confirma la audibilidad según el procedimiento G4.';
+        _status = 'Reproducción finalizada. Registra audibilidad humana en G4.';
       });
     } catch (error) {
       _setFailure('No se pudo reproducir la muestra: ${error.runtimeType}.');
@@ -226,77 +283,88 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   }
 
   Future<void> _startLiveTranslation() async {
+    if (!_permissionGranted) {
+      setState(() => _liveStatus = 'G5 bloqueado: concede micrófono primero.');
+      return;
+    }
     if (!_localConsent || !_modelDownloadConsent) {
       setState(() {
         _liveStatus =
-            'G5 bloqueado: concede consentimiento local y de descarga de modelo para esta sesión.';
+            'G5 bloqueado: concede procesamiento local y descarga de modelo para esta sesión.';
       });
       return;
     }
     try {
-      final now = DateTime.now().microsecondsSinceEpoch;
+      final int now = DateTime.now().microsecondsSinceEpoch;
       final session = TranslationSession(
         sessionId: 'live-$now',
         streamEpoch: now,
         direction: _direction,
         privacyGeneration: now,
       );
-      final locales = _direction == TranslationDirection.englishToSpanish
-          ? ('en-US', 'es-ES')
-          : ('es-ES', 'en-US');
+      final context = AgentSessionContext(
+        agentId: HorizonTranslateAgent.agentId,
+        session: session,
+        grant: AgentPermissionGrant(
+          agentId: HorizonTranslateAgent.agentId,
+          sessionId: session.sessionId,
+          streamEpoch: session.streamEpoch,
+          privacyGeneration: session.privacyGeneration,
+          permissions:
+              HorizonTranslateAgent.horizonManifest.requestedPermissions,
+          issuedAtMicros: now,
+          expiresAtMicros: now + const Duration(hours: 1).inMicroseconds,
+        ),
+        executionMode: AgentExecutionMode.validation,
+      );
       setState(() {
+        _activeAgentContext = context;
         _partialTranscript = '';
         _finalTranscript = '';
         _translation = '';
         _staleCallbacks = 0;
         _modelStatus = 'Preparando modelo on-device';
         _liveStatus =
-            'Preparando reconocimiento, modelo local y síntesis Android.';
+            'G7 autorizó una sesión de validación; preparando proveedores locales.';
       });
-      await _runtime.start(
-        config: LiveTranslationConfig(
-          session: session,
-          sourceLocale: locales.$1,
-          targetLocale: locales.$2,
-          consent: TranslationConsent(
-            acceptedAtMicros: now,
-            localProcessingAllowed: true,
-            modelDownloadAllowed: true,
-            remoteProcessingAllowed: false,
-          ),
-        ),
-        audioSession: AudioSessionDescriptor(
-          sessionId: session.sessionId,
-          streamEpoch: session.streamEpoch,
-          streamId: 'android-microphone-live',
-        ),
-      );
+      await _agentRuntime.start(HorizonTranslateAgent.agentId, context);
       if (!mounted) return;
       setState(() {
         _liveRunning = true;
         _liveStatus =
-            'Escuchando con micrófono Android real. No se persiste audio ni texto.';
+            'Escuchando con ruta Android real. PCM y texto permanecen sólo en memoria de sesión.';
       });
     } on RuntimeError catch (error) {
       if (!mounted) return;
       setState(() {
         _liveRunning = false;
-        _liveStatus = 'G5 bloqueado: ${error.code.name}.';
+        _activeAgentContext = null;
+        _liveStatus = 'G5/G7 bloqueado: ${error.code.name}.';
       });
     } catch (error) {
       if (!mounted) return;
       setState(() {
         _liveRunning = false;
-        _liveStatus = 'G5 no se pudo iniciar: ${error.runtimeType}.';
+        _activeAgentContext = null;
+        _liveStatus = 'G5/G7 no pudo iniciar: ${error.runtimeType}.';
       });
     }
   }
 
   Future<void> _stopLiveTranslation() async {
-    await _runtime.stop();
+    final context = _activeAgentContext;
+    if (context == null) return;
+    try {
+      await _agentRuntime.stop(HorizonTranslateAgent.agentId, context);
+    } on RuntimeError catch (error) {
+      if (!mounted) return;
+      setState(() => _liveStatus = 'Stop bloqueado: ${error.code.name}.');
+      return;
+    }
     if (!mounted) return;
     setState(() {
       _liveRunning = false;
+      _activeAgentContext = null;
       _partialTranscript = '';
       _finalTranscript = '';
       _translation = '';
@@ -304,6 +372,31 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
           'Sesión detenida. Se descartó el estado textual mostrado en memoria.';
     });
   }
+
+  LiveTranslationConfig _translationConfigFor(AgentSessionContext context) {
+    final locales =
+        context.session.direction == TranslationDirection.englishToSpanish
+            ? ('en-US', 'es-ES')
+            : ('es-ES', 'en-US');
+    return LiveTranslationConfig(
+      session: context.session,
+      sourceLocale: locales.$1,
+      targetLocale: locales.$2,
+      consent: TranslationConsent(
+        acceptedAtMicros: context.grant.issuedAtMicros,
+        localProcessingAllowed: _localConsent,
+        modelDownloadAllowed: _modelDownloadConsent,
+        remoteProcessingAllowed: false,
+      ),
+    );
+  }
+
+  AudioSessionDescriptor _audioSessionFor(AgentSessionContext context) =>
+      AudioSessionDescriptor(
+        sessionId: context.session.sessionId,
+        streamEpoch: context.session.streamEpoch,
+        streamId: 'android-microphone-live',
+      );
 
   void _collectInputFrame(AudioFrame frame) {
     if (!_capturing) return;
@@ -313,8 +406,16 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   }
 
   void _observeInputDiagnostic(AudioDiagnostic diagnostic) {
-    if (diagnostic.code == AudioDiagnosticCode.inputDropped && mounted) {
-      setState(() => _inputDrops += diagnostic.value ?? 1);
+    if (!mounted) return;
+    switch (diagnostic.code) {
+      case AudioDiagnosticCode.inputDropped:
+        setState(() => _inputDrops += diagnostic.value ?? 1);
+      case AudioDiagnosticCode.captureTimestampAvailable:
+        setState(() => _inputTimestampAvailable = true);
+      case AudioDiagnosticCode.captureTimestampUnavailable:
+        setState(() => _inputTimestampAvailable = false);
+      default:
+        break;
     }
   }
 
@@ -325,6 +426,10 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         setState(() => _outputWrites += 1);
       case AudioDiagnosticCode.outputUnderrun:
         setState(() => _underruns = diagnostic.value ?? _underruns + 1);
+      case AudioDiagnosticCode.outputTimestampAvailable:
+        setState(() => _outputTimestampAvailable = true);
+      case AudioDiagnosticCode.outputTimestampUnavailable:
+        setState(() => _outputTimestampAvailable = false);
       default:
         break;
     }
@@ -368,168 +473,272 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     });
   }
 
+  void _observeAgentRegistration(AgentRegistration registration) {
+    if (!mounted) return;
+    setState(() {
+      _agentState = registration.state;
+      _agentStatus = registration.failureCode == null
+          ? 'Estado ${registration.state.name} — evidencia PREPARED.'
+          : 'Estado ${registration.state.name}: ${registration.failureCode!.name}.';
+    });
+  }
+
+  void _observeAgentAudit(AgentAuditEvent event) {
+    if (mounted) setState(() => _agentAuditEvents += 1);
+  }
+
+  void _observeAgentDiagnostic(AgentDiagnostic diagnostic) {
+    if (mounted) setState(() => _agentDiagnostics += 1);
+  }
+
   void _setFailure(String message) {
     if (mounted) setState(() => _status = message);
   }
+
+  String _availability(bool? available) => switch (available) {
+        true => 'Disponible según diagnóstico del sistema',
+        false => 'No disponible según diagnóstico del sistema',
+        null => 'Sin medición en esta ejecución',
+      };
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('PersalOne HORIZON — Android')),
-      body: ListView(
-        padding: const EdgeInsets.all(24),
-        children: <Widget>[
-          Text('G3/G4: host audio real', style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 12),
-          const Text(
-            'Esta ruta usa AudioRecord y AudioTrack en Android. Los frames se mantienen en memoria de forma acotada sólo para verificación local y no se guardan en disco.',
-          ),
-          const SizedBox(height: 16),
-          const _EvidenceCard(
-            title: 'Estado de evidencia',
-            value:
-                'PREPARED — se requiere dispositivo Android físico para MEASURED',
-          ),
-          const _EvidenceCard(
-            title: 'Halo audio',
-            value: 'BLOCKED — pendiente de validación física de las gafas',
-          ),
-          _EvidenceCard(title: 'Estado', value: _status),
-          const SizedBox(height: 12),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: <Widget>[
-              ElevatedButton(
-                onPressed: _permissionGranted ? null : _requestPermission,
-                child: const Text('Solicitar micrófono'),
+      appBar: AppBar(title: const Text('PersalOne HORIZON')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.all(20),
+          children: <Widget>[
+            Text('HORIZON / consola de evidencia',
+                style: theme.textTheme.headlineSmall),
+            const SizedBox(height: 8),
+            const Text(
+              'Los estados muestran únicamente lo observable en esta instalación. Una UI no puede convertir una capacidad PREPARED en MEASURED.',
+            ),
+            const SizedBox(height: 20),
+            _SectionHeader('Dispositivo'),
+            const _EvidenceCard(
+              title: 'Halo',
+              value:
+                  'BLOCKED — no hay gafas físicas ni conexión BLE verificada en esta sesión.',
+            ),
+            _EvidenceCard(
+              title: 'Host Android',
+              value: _permissionGranted
+                  ? 'Micrófono autorizado por el sistema; evidencia física aún pendiente.'
+                  : 'Micrófono no autorizado; captura y agente de traducción bloqueados.',
+            ),
+            _EvidenceCard(title: 'Estado host', value: _status),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                ElevatedButton(
+                  onPressed: _permissionGranted ? null : _requestPermission,
+                  child: const Text('Solicitar micrófono'),
+                ),
+                ElevatedButton(
+                  onPressed: _permissionGranted && !_playing && !_liveRunning
+                      ? _toggleCapture
+                      : null,
+                  child: Text(
+                    _capturing ? 'Detener captura' : 'Iniciar captura real',
+                  ),
+                ),
+                ElevatedButton(
+                  onPressed: !_capturing &&
+                          !_playing &&
+                          !_liveRunning &&
+                          _sample.length > 0
+                      ? _playCapturedSample
+                      : null,
+                  child: const Text('Reproducir muestra real'),
+                ),
+              ],
+            ),
+            const Divider(height: 40),
+            _SectionHeader('Conversación en vivo / EN ↔ ES'),
+            const _EvidenceCard(
+              title: 'Ruta de ejecución',
+              value:
+                  'G5 PREPARED — AudioRecord → STT por PCM si el servicio lo soporta → ML Kit local → TTS Android.',
+            ),
+            _EvidenceCard(title: 'Modelo local', value: _modelStatus),
+            _EvidenceCard(title: 'Sesión', value: _liveStatus),
+            DropdownButtonFormField<TranslationDirection>(
+              value: _direction,
+              decoration: const InputDecoration(labelText: 'Dirección'),
+              onChanged: _liveRunning
+                  ? null
+                  : (direction) {
+                      if (direction != null) {
+                        setState(() => _direction = direction);
+                      }
+                    },
+              items: const <DropdownMenuItem<TranslationDirection>>[
+                DropdownMenuItem(
+                  value: TranslationDirection.englishToSpanish,
+                  child: Text('Inglés → Español'),
+                ),
+                DropdownMenuItem(
+                  value: TranslationDirection.spanishToEnglish,
+                  child: Text('Español → Inglés'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: <Widget>[
+                ElevatedButton(
+                  onPressed: !_liveRunning && !_capturing && !_playing
+                      ? _startLiveTranslation
+                      : null,
+                  child: const Text('Iniciar traducción en vivo'),
+                ),
+                ElevatedButton(
+                  onPressed: _liveRunning ? _stopLiveTranslation : null,
+                  child: const Text('Detener y descartar sesión'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _EvidenceCard(
+              title: 'Transcripción parcial en memoria',
+              value: _partialTranscript.isEmpty
+                  ? 'Sin hipótesis parcial.'
+                  : _partialTranscript,
+            ),
+            _EvidenceCard(
+              title: 'Última transcripción final en memoria',
+              value: _finalTranscript.isEmpty
+                  ? 'Sin segmento final.'
+                  : _finalTranscript,
+            ),
+            _EvidenceCard(
+              title: 'Última traducción en memoria',
+              value:
+                  _translation.isEmpty ? 'Sin traducción final.' : _translation,
+            ),
+            const Divider(height: 40),
+            _SectionHeader('Agentes y permisos'),
+            _EvidenceCard(title: 'HORIZON Translate', value: _agentStatus),
+            _EvidenceCard(
+              title: 'Lifecycle de agente',
+              value: _agentState.name,
+            ),
+            CheckboxListTile(
+              value: _localConsent,
+              onChanged: _liveRunning
+                  ? null
+                  : (value) => setState(() => _localConsent = value ?? false),
+              title: const Text(
+                  'Consiento el procesamiento local para esta sesión'),
+              subtitle: const Text(
+                'El grant de agente se emite sólo al iniciar y no se persiste.',
               ),
-              ElevatedButton(
-                onPressed: _permissionGranted && !_playing && !_liveRunning
-                    ? _toggleCapture
-                    : null,
-                child: Text(
-                    _capturing ? 'Detener captura' : 'Iniciar captura real'),
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            CheckboxListTile(
+              value: _modelDownloadConsent,
+              onChanged: _liveRunning
+                  ? null
+                  : (value) =>
+                      setState(() => _modelDownloadConsent = value ?? false),
+              title:
+                  const Text('Autorizo preparar o descargar el modelo local'),
+              subtitle: const Text(
+                'Sin este consentimiento no se crea la sesión de validación G5.',
               ),
-              ElevatedButton(
-                onPressed: !_capturing &&
-                        !_playing &&
-                        !_liveRunning &&
-                        _sample.length > 0
-                    ? _playCapturedSample
-                    : null,
-                child: const Text('Reproducir muestra real'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          Text('Telemetría local', style: theme.textTheme.titleMedium),
-          const SizedBox(height: 8),
-          Text('Frames de entrada: $_inputFrames'),
-          Text('Drops de entrada: $_inputDrops'),
-          Text('Escrituras de salida: $_outputWrites'),
-          Text('Underruns de salida: $_underruns'),
-          const Divider(height: 40),
-          Text('G5: Live Translator EN ↔ ES',
-              style: theme.textTheme.headlineSmall),
-          const SizedBox(height: 12),
-          const Text(
-            'La sesión usa micrófono Android, reconocimiento on-device condicionado por soporte del dispositivo, modelo ML Kit local y TextToSpeech Android. No se habilita una ruta cloud y no se persisten PCM, transcripciones ni traducciones.',
-          ),
-          _EvidenceCard(
-            title: 'Estado G5',
-            value: 'PREPARED — no hay ensayo físico registrado',
-          ),
-          _EvidenceCard(title: 'Estado de modelo', value: _modelStatus),
-          _EvidenceCard(title: 'Estado de sesión', value: _liveStatus),
-          DropdownButtonFormField<TranslationDirection>(
-            value: _direction,
-            decoration: const InputDecoration(labelText: 'Dirección'),
-            onChanged: _liveRunning
-                ? null
-                : (direction) {
-                    if (direction != null) {
-                      setState(() => _direction = direction);
-                    }
-                  },
-            items: const <DropdownMenuItem<TranslationDirection>>[
-              DropdownMenuItem(
-                value: TranslationDirection.englishToSpanish,
-                child: Text('Inglés → Español'),
-              ),
-              DropdownMenuItem(
-                value: TranslationDirection.spanishToEnglish,
-                child: Text('Español → Inglés'),
-              ),
-            ],
-          ),
-          CheckboxListTile(
-            value: _localConsent,
-            onChanged: _liveRunning
-                ? null
-                : (value) => setState(() => _localConsent = value ?? false),
-            title:
-                const Text('Consiento el procesamiento local para esta sesión'),
-            subtitle:
-                const Text('La autorización termina al detener la sesión.'),
-            controlAffinity: ListTileControlAffinity.leading,
-          ),
-          CheckboxListTile(
-            value: _modelDownloadConsent,
-            onChanged: _liveRunning
-                ? null
-                : (value) =>
-                    setState(() => _modelDownloadConsent = value ?? false),
-            title:
-                const Text('Autorizo preparar o descargar el modelo on-device'),
-            subtitle: const Text(
-                'Sin esta autorización, la sesión se bloquea de forma explícita.'),
-            controlAffinity: ListTileControlAffinity.leading,
-          ),
-          Wrap(
-            spacing: 12,
-            runSpacing: 12,
-            children: <Widget>[
-              ElevatedButton(
-                onPressed: !_liveRunning && !_capturing && !_playing
-                    ? _startLiveTranslation
-                    : null,
-                child: const Text('Iniciar traducción en vivo'),
-              ),
-              ElevatedButton(
-                onPressed: _liveRunning ? _stopLiveTranslation : null,
-                child: const Text('Detener y descartar sesión'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _EvidenceCard(
-            title: 'Transcripción parcial en memoria',
-            value: _partialTranscript.isEmpty
-                ? 'Sin hipótesis parcial.'
-                : _partialTranscript,
-          ),
-          _EvidenceCard(
-            title: 'Última transcripción final en memoria',
-            value: _finalTranscript.isEmpty
-                ? 'Sin segmento final.'
-                : _finalTranscript,
-          ),
-          _EvidenceCard(
-            title: 'Última traducción en memoria',
-            value:
-                _translation.isEmpty ? 'Sin traducción final.' : _translation,
-          ),
-          Text('Callbacks obsoletos descartados: $_staleCallbacks'),
-          const SizedBox(height: 20),
-          const Text(
-            'Validación pendiente: en un dispositivo Android físico, verifica reconocimiento compatible con entrada PCM, disponibilidad y descarga del modelo local, voz TTS en el locale destino, barge-in y audibilidad. Registra dispositivo, versión Android, ruta de audio, fecha y observaciones reproducibles. La UI no cambia truth labels por sí sola.',
-          ),
-        ],
+              controlAffinity: ListTileControlAffinity.leading,
+            ),
+            const _EvidenceCard(
+              title: 'Memoria de agente',
+              value:
+                  'none — no hay historial, PCM, transcript ni traducción persistentes entre sesiones.',
+            ),
+            const Divider(height: 40),
+            _SectionHeader('Privacidad, diagnósticos y latencia'),
+            const _EvidenceCard(
+              title: 'Datos de sesión',
+              value:
+                  'PCM, transcript y traducción se mantienen sólo en memoria durante la sesión. Stop vacía el texto visible y descarta callbacks tardíos.',
+            ),
+            _EvidenceCard(
+              title: 'Diagnósticos censurados',
+              value:
+                  'Frames: $_inputFrames · drops: $_inputDrops · writes: $_outputWrites · underruns: $_underruns · callbacks G5 obsoletos: $_staleCallbacks · auditorías G7: $_agentAuditEvents · diagnósticos G7: $_agentDiagnostics',
+            ),
+            _EvidenceCard(
+              title: 'Timestamp de entrada',
+              value: _availability(_inputTimestampAvailable),
+            ),
+            _EvidenceCard(
+              title: 'Timestamp de salida',
+              value: _availability(_outputTimestampAvailable),
+            ),
+            const _EvidenceCard(
+              title: 'Latencia de conversación',
+              value:
+                  'No medida. Los timestamps del sistema no equivalen a latencia end-to-end ni a audibilidad; no existe aún un protocolo loopback aceptado.',
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Para promover una subcapacidad a MEASURED, sigue docs/ANDROID_PHYSICAL_VALIDATION_RUNBOOK.md en un teléfono Android físico y registra sólo evidencia censurada. Halo audio permanece BLOCKED.',
+            ),
+          ],
+        ),
       ),
     );
   }
+}
+
+final class _AndroidHostCapabilityResolver implements AgentCapabilityResolver {
+  const _AndroidHostCapabilityResolver(
+      {required this.microphonePermissionGranted});
+
+  final bool Function() microphonePermissionGranted;
+
+  @override
+  Future<AgentCapabilityAvailability> availabilityFor(
+    AgentPermission permission,
+  ) async {
+    final truthLabel = permission == AgentPermission.microphoneCapture &&
+            !microphonePermissionGranted()
+        ? TruthLabel.blocked
+        : TruthLabel.prepared;
+    return AgentCapabilityAvailability(
+      permission: permission,
+      truthLabel: truthLabel,
+    );
+  }
+}
+
+/// G7 knows only that local provider ports are registered. Their operational
+/// readiness remains unknown until G5 prepares them, and G5 blocks start if a
+/// native support/model/voice check fails.
+final class _LocalTranslationProviderResolver implements AgentProviderResolver {
+  const _LocalTranslationProviderResolver();
+
+  @override
+  Future<ProviderReadiness> readinessFor(
+    AgentProviderRequirement requirement,
+  ) async =>
+      ProviderReadiness.unknown;
+}
+
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+      );
 }
 
 class _EvidenceCard extends StatelessWidget {

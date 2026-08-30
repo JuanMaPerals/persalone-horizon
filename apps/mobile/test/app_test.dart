@@ -3,25 +3,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:persalone_mobile/main.dart';
 
 void main() {
-  testWidgets('shows Android-first G3/G4 and G5 controls with evidence limits', (
+  testWidgets('shows product states, live controls and evidence limits', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const PersalOneApp());
 
-    expect(find.text('PersalOne HORIZON — Android'), findsOneWidget);
-    expect(find.text('G3/G4: host audio real'), findsOneWidget);
-    expect(find.textContaining('PREPARED'), findsWidgets);
-    expect(find.textContaining('Halo audio'), findsOneWidget);
+    expect(find.text('PersalOne HORIZON'), findsOneWidget);
+    expect(find.text('Dispositivo'), findsOneWidget);
+    expect(find.textContaining('Halo'), findsOneWidget);
+    expect(find.textContaining('BLOCKED'), findsWidgets);
     expect(find.text('Solicitar micrófono'), findsOneWidget);
     expect(find.text('Iniciar captura real'), findsOneWidget);
 
-    final g5Heading = find.textContaining('G5: Live Translator');
+    final conversation = find.text('Conversación en vivo / EN ↔ ES');
     await tester.scrollUntilVisible(
-      g5Heading,
+      conversation,
       300,
       scrollable: find.byType(Scrollable),
     );
-    expect(g5Heading, findsOneWidget);
+    expect(conversation, findsOneWidget);
+
     final startLiveTranslation = find.text('Iniciar traducción en vivo');
     await tester.scrollUntilVisible(
       startLiveTranslation,
@@ -29,5 +30,35 @@ void main() {
       scrollable: find.byType(Scrollable),
     );
     expect(startLiveTranslation, findsOneWidget);
+
+    final agents = find.text('Agentes y permisos');
+    await tester.scrollUntilVisible(
+      agents,
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(agents, findsOneWidget);
+    final memory = find.textContaining('Memoria de agente');
+    await tester.scrollUntilVisible(
+      memory,
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(memory, findsOneWidget);
+
+    final privacy = find.text('Privacidad, diagnósticos y latencia');
+    await tester.scrollUntilVisible(
+      privacy,
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(privacy, findsOneWidget);
+    final latency = find.textContaining('No medida');
+    await tester.scrollUntilVisible(
+      latency,
+      300,
+      scrollable: find.byType(Scrollable),
+    );
+    expect(latency, findsOneWidget);
   });
 }

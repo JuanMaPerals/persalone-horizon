@@ -2,13 +2,15 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:persalone_mobile/main.dart';
 
 void main() {
-  testWidgets('declares the G3/G4 Android audio evidence boundary', (
+  testWidgets('declares Android host and Halo evidence boundaries', (
     WidgetTester tester,
   ) async {
     await tester.pumpWidget(const PersalOneApp());
 
-    expect(find.text('G3/G4: host audio real'), findsOneWidget);
-    expect(find.textContaining('Halo audio'), findsOneWidget);
-    expect(find.textContaining('MEASURED'), findsOneWidget);
+    expect(find.text('Dispositivo'), findsOneWidget);
+    expect(find.textContaining('Host Android'), findsOneWidget);
+    expect(find.textContaining('Halo'), findsOneWidget);
+    expect(find.textContaining('BLOCKED'), findsWidgets);
+    expect(find.textContaining('PREPARED'), findsWidgets);
   });
 }

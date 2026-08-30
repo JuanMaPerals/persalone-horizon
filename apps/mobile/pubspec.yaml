@@ -14,6 +14,8 @@ dependencies:
     path: ../../packages/audio_adapters
   persalone_translation_runtime:
     path: ../../packages/translation_runtime
+  persalone_agent_runtime:
+    path: ../../packages/agent_runtime
 dev_dependencies:
   flutter_test:
     sdk: flutter
