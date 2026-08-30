@@ -1,0 +1,15 @@
+name: persalone_agent_runtime
+description: Fail-closed agent lifecycle and permission runtime for PersalOne HORIZON.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+resolution: workspace
+dependencies:
+  persalone_contracts:
+    path: ../contracts
+  persalone_translation_runtime:
+    path: ../translation_runtime
+dev_dependencies:
+  test: ^1.25.15
+  lints: ^5.1.1

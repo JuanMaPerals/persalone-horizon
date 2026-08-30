@@ -1,5 +1,6 @@
 library;
 
+export 'src/agent.dart';
 export 'src/audio.dart';
 export 'src/capability.dart';
 export 'src/device_adapter.dart';

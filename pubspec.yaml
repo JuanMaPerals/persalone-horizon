@@ -9,6 +9,7 @@ workspace:
   - packages/halo_adapter
   - packages/audio_adapters
   - packages/translation_runtime
+  - packages/agent_runtime
 dev_dependencies:
   lints: ^5.1.1
 flutter:

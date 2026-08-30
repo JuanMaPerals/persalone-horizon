@@ -18,6 +18,9 @@ enum RuntimeErrorCode {
   translationModelUnavailable,
   speechSynthesisUnavailable,
   providerUnavailable,
+  agentUnavailable,
+  permissionGrantExpired,
+  lifecycleInvalid,
 }
 
 /// A contract-level failure that is safe to expose to the user interface.
