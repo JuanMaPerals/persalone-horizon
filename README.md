@@ -1,10 +1,16 @@
 # PersalOne HORIZON
 
 ```text
-┌───────────────────────────────────────────────────────────────────────┐
-│                         PERSALONE  HORIZON                             │
-│                         See. Understand. Act.                          │
-└───────────────────────────────────────────────────────────────────────┘
+      ────╲    .-─────────-.   .-─────────-.    ╱────
+           ╲  /  [CONTEXT] \___/  [AGENTS]  \  ╱
+            ╲|    VISION   |   |    AUDIO   |╱
+             |             |───|            |
+            ╱|             |   |            |╲
+           ╱  \____________/     \__________/  ╲
+      ────╱      ╲___╱               ╲___╱      ╲────
+
+                    PERSALONE HORIZON
+                     SEE · UNDERSTAND · ACT
 ```
 
 **PersalOne HORIZON** is an evidence-first, privacy-first platform for useful agents at the edge of human attention. It is being built to help people see, understand, and act while retaining control over devices, permissions, data, and the difference between a prepared capability and one proven in the physical world.
