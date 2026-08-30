@@ -15,7 +15,7 @@ fi
 
 repo_root=$(git rev-parse --show-toplevel)
 case "$repo_root" in
-  */persalone-halo) ;;
+  */persalone-horizon) ;;
   *)
     printf '%s\n' "BLOCKED — repository path is not authorized: $repo_root" >&2
     exit 1
