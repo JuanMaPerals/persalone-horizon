@@ -38,9 +38,13 @@ abstract interface class AgentProviderResolver {
 }
 
 final class _AgentEntry {
-  _AgentEntry(this.controller, this.state);
+  _AgentEntry(this.controller, this.manifest, this.state);
 
   final AgentController controller;
+
+  /// Immutable registration-time declaration. Lifecycle behavior must never
+  /// consult [AgentController.manifest] after registration.
+  final AgentManifest manifest;
   AgentLifecycleState state;
   AgentSessionContext? activeContext;
 }
@@ -75,9 +79,11 @@ final class PersalOneAgentRuntime {
 
   Future<void> register(AgentController controller) async {
     _ensureNotDisposed();
-    final manifest = controller.manifest;
+    // Read this potentially mutable controller boundary exactly once.
+    final capturedManifest = controller.manifest;
     try {
-      manifest.validate();
+      capturedManifest.validate();
+      final manifest = _snapshotManifest(capturedManifest);
       if (_entries.containsKey(manifest.agentId)) {
         throw const RuntimeError(
           RuntimeErrorCode.invalidContract,
@@ -86,23 +92,28 @@ final class PersalOneAgentRuntime {
       }
       _entries[manifest.agentId] = _AgentEntry(
         controller,
+        manifest,
         AgentLifecycleState.registered,
       );
       _emitRegistration(manifest, AgentLifecycleState.registered);
       _emitAudit(AgentAuditEventCode.agentRegistered, manifest.agentId, 0);
     } on RuntimeError catch (error) {
       _emitRegistration(
-        manifest,
+        capturedManifest,
         AgentLifecycleState.failed,
         failureCode: error.code,
       );
       _emitDiagnostic(
         AgentDiagnosticCode.manifestInvalid,
-        manifest.agentId,
+        capturedManifest.agentId,
         0,
         error.code,
       );
-      _emitAudit(AgentAuditEventCode.registrationRejected, manifest.agentId, 0);
+      _emitAudit(
+        AgentAuditEventCode.registrationRejected,
+        capturedManifest.agentId,
+        0,
+      );
       rethrow;
     }
   }
@@ -117,7 +128,7 @@ final class PersalOneAgentRuntime {
       );
     }
     return AgentRegistration(
-      manifest: entry.controller.manifest,
+      manifest: entry.manifest,
       state: entry.state,
       observedAtMicros: _nowMicros,
     );
@@ -125,32 +136,33 @@ final class PersalOneAgentRuntime {
 
   Future<void> start(String agentId, AgentSessionContext context) async {
     _ensureNotDisposed();
-    final entry = _entryFor(agentId, context.session.streamEpoch);
-    final manifest = entry.controller.manifest;
-    _validateLifecycleForStart(entry, context);
+    final capturedContext = _snapshotContext(context);
+    final entry = _entryFor(agentId, capturedContext.session.streamEpoch);
+    final manifest = entry.manifest;
+    _validateLifecycleForStart(entry, capturedContext);
     _setState(entry, AgentLifecycleState.permissionRequired);
     _emitRegistration(manifest, AgentLifecycleState.permissionRequired);
 
     try {
-      await _validateContext(manifest, context);
-      await _validateCapabilities(manifest, context);
-      await _validateProviders(manifest, context);
+      await _validateContext(manifest, capturedContext);
+      await _validateCapabilities(manifest, capturedContext);
+      await _validateProviders(manifest, capturedContext);
       _setState(entry, AgentLifecycleState.ready);
       _emitRegistration(manifest, AgentLifecycleState.ready);
       _setState(entry, AgentLifecycleState.starting);
       _emitRegistration(manifest, AgentLifecycleState.starting);
       _emitAudit(AgentAuditEventCode.agentStarting, agentId,
-          context.session.streamEpoch);
-      await entry.controller.start(context);
-      _setState(entry, AgentLifecycleState.active, context: context);
+          capturedContext.session.streamEpoch);
+      await entry.controller.start(capturedContext);
+      _setState(entry, AgentLifecycleState.active, context: capturedContext);
       _emitRegistration(manifest, AgentLifecycleState.active);
       _emitAudit(AgentAuditEventCode.agentStarted, agentId,
-          context.session.streamEpoch);
+          capturedContext.session.streamEpoch);
     } on RuntimeError catch (error) {
-      _fail(entry, context, error.code);
+      _fail(entry, capturedContext, error.code);
       rethrow;
     } on Object {
-      _fail(entry, context, RuntimeErrorCode.providerUnavailable);
+      _fail(entry, capturedContext, RuntimeErrorCode.providerUnavailable);
       throw const RuntimeError(
         RuntimeErrorCode.providerUnavailable,
         'Agent controller failed without an exposed provider-safe error.',
@@ -161,20 +173,21 @@ final class PersalOneAgentRuntime {
 
   Future<void> stop(String agentId, AgentSessionContext context) async {
     _ensureNotDisposed();
-    final entry = _entryFor(agentId, context.session.streamEpoch);
+    final capturedContext = _snapshotContext(context);
+    final entry = _entryFor(agentId, capturedContext.session.streamEpoch);
     if (entry.state != AgentLifecycleState.active ||
         entry.activeContext == null ||
-        !_matches(entry.activeContext!, context)) {
+        !_matches(entry.activeContext!, capturedContext)) {
       _emitDiagnostic(
         AgentDiagnosticCode.staleCallbackDiscarded,
         agentId,
-        context.session.streamEpoch,
+        capturedContext.session.streamEpoch,
         RuntimeErrorCode.staleStreamEpoch,
       );
       _emitAudit(
         AgentAuditEventCode.staleCallbackDiscarded,
         agentId,
-        context.session.streamEpoch,
+        capturedContext.session.streamEpoch,
       );
       throw const RuntimeError(
         RuntimeErrorCode.staleStreamEpoch,
@@ -182,20 +195,20 @@ final class PersalOneAgentRuntime {
       );
     }
     _setState(entry, AgentLifecycleState.stopping);
-    _emitRegistration(entry.controller.manifest, AgentLifecycleState.stopping);
+    _emitRegistration(entry.manifest, AgentLifecycleState.stopping);
     _emitAudit(AgentAuditEventCode.agentStopping, agentId,
-        context.session.streamEpoch);
+        capturedContext.session.streamEpoch);
     try {
-      await entry.controller.stop(context);
+      await entry.controller.stop(capturedContext);
       _setState(entry, AgentLifecycleState.stopped);
-      _emitRegistration(entry.controller.manifest, AgentLifecycleState.stopped);
+      _emitRegistration(entry.manifest, AgentLifecycleState.stopped);
       _emitAudit(AgentAuditEventCode.agentStopped, agentId,
-          context.session.streamEpoch);
+          capturedContext.session.streamEpoch);
     } on RuntimeError catch (error) {
-      _fail(entry, context, error.code);
+      _fail(entry, capturedContext, error.code);
       rethrow;
     } on Object {
-      _fail(entry, context, RuntimeErrorCode.providerUnavailable);
+      _fail(entry, capturedContext, RuntimeErrorCode.providerUnavailable);
       throw const RuntimeError(
         RuntimeErrorCode.providerUnavailable,
         'Agent controller stop failed without an exposed provider-safe error.',
@@ -375,7 +388,7 @@ final class PersalOneAgentRuntime {
   ) {
     _setState(entry, AgentLifecycleState.failed);
     _emitRegistration(
-      entry.controller.manifest,
+      entry.manifest,
       AgentLifecycleState.failed,
       failureCode: failureCode,
     );
@@ -387,6 +400,50 @@ final class PersalOneAgentRuntime {
     );
     _emitAudit(AgentAuditEventCode.agentFailed, context.agentId,
         context.session.streamEpoch);
+  }
+
+  AgentManifest _snapshotManifest(AgentManifest source) => AgentManifest(
+        schemaVersion: source.schemaVersion,
+        agentId: source.agentId,
+        displayName: source.displayName,
+        version: source.version,
+        requestedPermissions: Set<AgentPermission>.unmodifiable(
+          source.requestedPermissions,
+        ),
+        providerRequirements: List<AgentProviderRequirement>.unmodifiable(
+          source.providerRequirements.map(
+            (requirement) => AgentProviderRequirement(
+              category: requirement.category,
+              localOnly: requirement.localOnly,
+              minimumRevision: requirement.minimumRevision,
+            ),
+          ),
+        ),
+        memoryPolicy: source.memoryPolicy,
+      );
+
+  AgentSessionContext _snapshotContext(AgentSessionContext source) {
+    final session = TranslationSession(
+      sessionId: source.session.sessionId,
+      streamEpoch: source.session.streamEpoch,
+      direction: source.session.direction,
+      privacyGeneration: source.session.privacyGeneration,
+    );
+    final grant = AgentPermissionGrant(
+      agentId: source.grant.agentId,
+      sessionId: source.grant.sessionId,
+      streamEpoch: source.grant.streamEpoch,
+      privacyGeneration: source.grant.privacyGeneration,
+      permissions: Set<AgentPermission>.unmodifiable(source.grant.permissions),
+      issuedAtMicros: source.grant.issuedAtMicros,
+      expiresAtMicros: source.grant.expiresAtMicros,
+    );
+    return AgentSessionContext(
+      agentId: source.agentId,
+      session: session,
+      grant: grant,
+      executionMode: source.executionMode,
+    );
   }
 
   void _setState(

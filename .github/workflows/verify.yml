@@ -34,6 +34,7 @@ jobs:
           (cd packages/halo_adapter && flutter test)
           (cd packages/audio_adapters && flutter test)
           (cd packages/translation_runtime && dart test)
+          (cd packages/agent_runtime && dart test)
           (cd apps/mobile && flutter test)
       - name: Repository preflight
         run: bash tooling/preflight.sh --all
