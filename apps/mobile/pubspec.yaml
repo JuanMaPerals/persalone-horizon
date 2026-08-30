@@ -12,6 +12,8 @@ dependencies:
     path: ../../packages/contracts
   persalone_audio_adapters:
     path: ../../packages/audio_adapters
+  persalone_translation_runtime:
+    path: ../../packages/translation_runtime
 dev_dependencies:
   flutter_test:
     sdk: flutter

@@ -14,6 +14,10 @@ enum RuntimeErrorCode {
   deviceNotReady,
   protocolRejected,
   transportUnavailable,
+  recognitionUnavailable,
+  translationModelUnavailable,
+  speechSynthesisUnavailable,
+  providerUnavailable,
 }
 
 /// A contract-level failure that is safe to expose to the user interface.

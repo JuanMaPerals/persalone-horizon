@@ -1,0 +1,13 @@
+name: persalone_translation_runtime
+description: Provider-neutral live translation runtime for PersalOne HORIZON.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+resolution: workspace
+dependencies:
+  persalone_contracts:
+    path: ../contracts
+dev_dependencies:
+  test: ^1.25.15
+  lints: ^5.1.1
