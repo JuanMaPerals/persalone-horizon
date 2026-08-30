@@ -256,7 +256,7 @@ void main() {
       );
       final runtime = PersalOneAgentRuntime(
         capabilityResolver: _CapabilityResolver(TruthLabel.prepared),
-        providerResolver: _ProviderResolver(ProviderReadiness.ready),
+        providerResolver: _ProviderResolver(ProviderReadiness.unknown),
         clock: () => DateTime.fromMicrosecondsSinceEpoch(100),
       );
       await runtime.register(agent);

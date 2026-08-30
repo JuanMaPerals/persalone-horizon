@@ -103,10 +103,12 @@ Antes de invocar `start`, `AgentRuntime` debe rechazar de forma tipada cualquier
 | Agente no registrado o manifiesto inválido | `agentUnavailable` / `invalidContract` | No se crea sesión. |
 | Grant ausente, expirado, agentId/session/epoch incongruente | `consentRequired` / `policyDenied` / `staleStreamEpoch` | No se llama al agente. |
 | Grant contiene permiso no solicitado | `policyDenied` | Registrar auditoría censurada y bloquear. |
-| Requisito de proveedor no preparado/ready | `providerUnavailable` | No se llama al controlador. |
+| Requisito de proveedor explícitamente `unavailable` o `failed` | `providerUnavailable` | No se llama al controlador. |
 | Capacidad declarada `BLOCKED` o `FAILED` | `capabilityUnavailable` | No se llama al controlador. |
 | Lifecycle no válido | `sessionClosed` / `policyDenied` | No se ejecuta acción repetida o tardía. |
 | Callback de otro epoch | `staleStreamEpoch` | Descartar y auditar sin texto. |
+
+Los estados `unknown` y `preparing` sólo confirman que existe un puerto registrado; no son una afirmación de disponibilidad. G7 deja que el controlador inicie G5 y que G5 prepare STT, modelo y TTS bajo consentimiento. Si esa preparación falla, G5 bloquea la sesión y el runtime de agente registra el fallo censurado.
 
 ### Regla especial para `PREPARED`
 

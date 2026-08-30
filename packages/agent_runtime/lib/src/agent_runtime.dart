@@ -331,7 +331,8 @@ final class PersalOneAgentRuntime {
   ) async {
     for (final requirement in manifest.providerRequirements) {
       final readiness = await _providerResolver.readinessFor(requirement);
-      if (readiness != ProviderReadiness.ready) {
+      if (readiness == ProviderReadiness.unavailable ||
+          readiness == ProviderReadiness.failed) {
         _emitDiagnostic(
           AgentDiagnosticCode.providerUnavailable,
           manifest.agentId,
