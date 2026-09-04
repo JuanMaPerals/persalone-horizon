@@ -104,6 +104,155 @@ void main() {
         ),
       );
     });
+
+    test('preserves USERDATA order and duplicate payloads as prepared evidence',
+        () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 300,
+      );
+      addTearDown(adapter.dispose);
+
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+
+      await adapter.sendUserData(
+        UserDataMessage(
+          schemaVersion: CapabilityManifest.currentSchemaVersion,
+          type: 7,
+          payload: Uint8List.fromList(<int>[1, 2]),
+        ),
+      );
+      await adapter.sendUserData(
+        UserDataMessage(
+          schemaVersion: CapabilityManifest.currentSchemaVersion,
+          type: 7,
+          payload: Uint8List.fromList(<int>[1, 2]),
+        ),
+      );
+      await adapter.sendUserData(
+        UserDataMessage(
+          schemaVersion: CapabilityManifest.currentSchemaVersion,
+          type: 8,
+          payload: Uint8List.fromList(<int>[3]),
+        ),
+      );
+
+      expect(
+        transport.userDataWrites,
+        <Uint8List>[
+          Uint8List.fromList(<int>[0x01, 7, 1, 2]),
+          Uint8List.fromList(<int>[0x01, 7, 1, 2]),
+          Uint8List.fromList(<int>[0x01, 8, 3]),
+        ],
+      );
+    });
+
+    test('enforces negotiated single-packet USERDATA boundary', () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 400,
+      );
+      addTearDown(adapter.dispose);
+
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+
+      await adapter.sendUserData(
+        UserDataMessage(
+          schemaVersion: CapabilityManifest.currentSchemaVersion,
+          type: 255,
+          payload: Uint8List(240),
+        ),
+      );
+      expect(transport.lastUserData, hasLength(242));
+
+      expect(
+        adapter.sendUserData(
+          UserDataMessage(
+            schemaVersion: CapabilityManifest.currentSchemaVersion,
+            type: 255,
+            payload: Uint8List(241),
+          ),
+        ),
+        throwsA(isA<RuntimeError>()),
+      );
+      expect(transport.userDataWrites, hasLength(1));
+    });
+
+    test('rejects USERDATA while disconnected and reconnects selected device',
+        () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 500,
+      );
+      addTearDown(adapter.dispose);
+
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      final DeviceDiscovery device = await discovered;
+      await adapter.connect(device);
+      final Future<DeviceAdapterSnapshot> disconnected = adapter.snapshots
+          .where((DeviceAdapterSnapshot snapshot) =>
+              snapshot.state == DeviceConnectionState.disconnected)
+          .first;
+      transport.emitLinkState(false);
+      await disconnected;
+
+      expect(
+        adapter.sendUserData(
+          UserDataMessage(
+            schemaVersion: CapabilityManifest.currentSchemaVersion,
+            type: 1,
+            payload: Uint8List.fromList(<int>[1]),
+          ),
+        ),
+        throwsA(
+          isA<RuntimeError>().having(
+            (RuntimeError error) => error.code,
+            'code',
+            RuntimeErrorCode.deviceNotReady,
+          ),
+        ),
+      );
+
+      await adapter.reconnect();
+      expect(transport.reconnectIds, <String>['controlled-1']);
+    });
+
+    test('denies unsupported caller-supplied display Lua without transport call',
+        () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 600,
+      );
+      addTearDown(adapter.dispose);
+
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+
+      expect(
+        adapter.executeAllowedLua(
+          HaloLuaQuery.displayText,
+          text: 'hello',
+        ),
+        throwsA(
+          isA<RuntimeError>().having(
+            (RuntimeError error) => error.code,
+            'code',
+            RuntimeErrorCode.capabilityUnavailable,
+          ),
+        ),
+      );
+      expect(transport.readOnlyLuaCommands, isEmpty);
+    });
   });
 }
 
@@ -111,6 +260,9 @@ final class _ControlledTransport implements HaloTransport {
   final StreamController<HaloTransportDiscovery> _discoveries =
       StreamController<HaloTransportDiscovery>.broadcast();
   final StreamController<bool> _links = StreamController<bool>.broadcast();
+  final List<Uint8List> userDataWrites = <Uint8List>[];
+  final List<String> reconnectIds = <String>[];
+  final List<String> readOnlyLuaCommands = <String>[];
   Uint8List? lastUserData;
 
   @override
@@ -146,6 +298,7 @@ final class _ControlledTransport implements HaloTransport {
 
   @override
   Future<HaloTransportConnection> reconnect(String reconnectId) {
+    reconnectIds.add(reconnectId);
     return connect(
       HaloTransportDiscovery(
         reconnectId: reconnectId,
@@ -166,6 +319,7 @@ final class _ControlledTransport implements HaloTransport {
 
   @override
   Future<String> executeReadOnlyLua(String command) async {
+    readOnlyLuaCommands.add(command);
     return switch (command) {
       'print(frame.get_eui())' => '0011223344556677',
       'print(frame.HARDWARE_VERSION)' => 'halo',
@@ -179,6 +333,11 @@ final class _ControlledTransport implements HaloTransport {
   @override
   Future<void> sendUserData(Uint8List payload) async {
     lastUserData = Uint8List.fromList(payload);
+    userDataWrites.add(Uint8List.fromList(payload));
+  }
+
+  void emitLinkState(bool connected) {
+    _links.add(connected);
   }
 
   @override
