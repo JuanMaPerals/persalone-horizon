@@ -254,9 +254,244 @@ void main() {
       await runtime.dispose();
     });
   });
+
+  group('HorizonTranslationRuntime captions', () {
+    test('captions a delivered final turn before speaking it', () async {
+      final h = _CaptionHarness(_FakeCaptions());
+      await h.start();
+
+      h.addFinal(1);
+      await _drain();
+
+      expect(h.captions.visible, 'translated');
+      expect(h.deliveries.single.status, CaptionDeliveryStatus.delivered);
+      expect(h.deliveries.single.environment, ExecutionEnvironment.simulated);
+      expect(h.tts.spoken.map((s) => s.sequence), [1]);
+      expect(h.codes, contains(LiveTranslationDiagnosticCode.captionDelivered));
+      await h.dispose();
+    });
+
+    test('never captions partial hypotheses', () async {
+      final h = _CaptionHarness(_FakeCaptions());
+      await h.start();
+
+      h.stt.transcriptController.add(
+          _transcript(h.config.session, 2, TranscriptStability.partial));
+      await _drain();
+
+      expect(h.captions.shown, isEmpty);
+      expect(h.deliveries, isEmpty);
+      await h.dispose();
+    });
+
+    test('reports a blocked display without stopping translation or speech',
+        () async {
+      final h = _CaptionHarness(
+          _FakeCaptions(status: CaptionDeliveryStatus.blocked));
+      await h.start();
+
+      h.addFinal(3);
+      await _drain();
+
+      expect(h.deliveries.single.status, CaptionDeliveryStatus.blocked);
+      expect(h.deliveries.single.truthLabel, TruthLabel.blocked);
+      expect(h.captions.visible, isNull);
+      expect(h.tts.spoken.map((s) => s.sequence), [3]);
+      expect(h.runtime.state, HorizonTranslationRuntimeState.listening);
+      expect(
+        h.diagnostics.any((d) =>
+            d.code == LiveTranslationDiagnosticCode.captionBlocked &&
+            d.detail == 'capabilityUnavailable'),
+        isTrue,
+      );
+      await h.dispose();
+    });
+
+    test('rejects an adapter that reports a stronger environment than declared',
+        () async {
+      final h = _CaptionHarness(
+          _FakeCaptions(reportedEnvironment: ExecutionEnvironment.haloReal));
+      await h.start();
+
+      h.addFinal(4);
+      await _drain();
+
+      expect(h.deliveries.single.status, CaptionDeliveryStatus.failed);
+      expect(h.deliveries.single.environment, ExecutionEnvironment.simulated);
+      expect(h.deliveries.single.reason, 'environmentMismatch');
+      await h.dispose();
+    });
+
+    test('keeps the session alive when the caption adapter throws', () async {
+      final h = _CaptionHarness(_FakeCaptions(throwOnShow: true));
+      await h.start();
+
+      h.addFinal(5);
+      await _drain();
+
+      expect(h.deliveries.single.status, CaptionDeliveryStatus.failed);
+      expect(h.deliveries.single.reason, 'adapterError');
+      expect(h.tts.spoken.map((s) => s.sequence), [5]);
+      expect(h.runtime.state, HorizonTranslationRuntimeState.listening);
+      await h.dispose();
+    });
+
+    test('never captions an older turn whose translation completes late',
+        () async {
+      final h = _CaptionHarness(_FakeCaptions());
+      h.translator
+        ..gates[10] = Completer<void>()
+        ..gates[11] = Completer<void>();
+      await h.start();
+
+      h.addFinal(10);
+      await _drain();
+      h.addFinal(11);
+      await _drain();
+      h.translator.gates[11]!.complete();
+      await _drain();
+      h.translator.gates[10]!.complete();
+      await _drain();
+
+      expect(h.captions.shown, [11]);
+      expect(h.tts.spoken.map((s) => s.sequence), [11]);
+      await h.dispose();
+    });
+
+    test('clears the display on stop and discards a caption that lands after',
+        () async {
+      final captions = _FakeCaptions()..gates[30] = Completer<void>();
+      final h = _CaptionHarness(captions);
+      await h.start();
+
+      h.addFinal(30);
+      await _drain();
+      await h.runtime.stop();
+      expect(captions.cleared, [h.config.session.sessionId]);
+
+      captions.gates[30]!.complete();
+      await _drain();
+
+      expect(captions.visible, isNull);
+      expect(captions.cleared, hasLength(2));
+      expect(h.deliveries, isEmpty);
+      expect(h.tts.spoken, isEmpty);
+      expect(
+        h.diagnostics.any((d) =>
+            d.code == LiveTranslationDiagnosticCode.staleCallbackDiscarded &&
+            d.component == 'caption'),
+        isTrue,
+      );
+      await h.dispose();
+    });
+
+    test('clears the display when the session fails', () async {
+      final h = _CaptionHarness(_FakeCaptions());
+      h.stt.failPush = true;
+      await h.start();
+
+      h.input.framesController.add(_frame());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(h.runtime.state, HorizonTranslationRuntimeState.failed);
+      expect(h.captions.cleared, [h.config.session.sessionId]);
+      await h.dispose();
+    });
+  });
 }
 
 Future<void> _drain() => Future<void>.delayed(Duration.zero);
+
+final class _CaptionHarness {
+  _CaptionHarness(this.captions) {
+    runtime = HorizonTranslationRuntime(
+      input: input,
+      stt: stt,
+      translator: translator,
+      synthesizer: tts,
+      captions: captions,
+    );
+    _subscriptions
+      ..add(runtime.captionDeliveries.listen(deliveries.add))
+      ..add(runtime.diagnostics.listen(diagnostics.add));
+  }
+
+  final _FakeCaptions captions;
+  final input = _FakeInput();
+  final stt = _FakeStt();
+  final translator = _FakeTranslator();
+  final tts = _FakeTts();
+  final config = _config();
+  late final HorizonTranslationRuntime runtime;
+  final deliveries = <CaptionDelivery>[];
+  final diagnostics = <LiveTranslationDiagnostic>[];
+  final _subscriptions = <StreamSubscription<Object>>[];
+
+  Iterable<LiveTranslationDiagnosticCode> get codes =>
+      diagnostics.map((d) => d.code);
+
+  Future<void> start() =>
+      runtime.start(config: config, audioSession: _audioSession());
+
+  void addFinal(int sequence) => stt.transcriptController.add(
+      _transcript(config.session, sequence, TranscriptStability.finalResult));
+
+  Future<void> dispose() async {
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    await runtime.dispose();
+  }
+}
+
+final class _FakeCaptions implements CaptionOutputAdapter {
+  _FakeCaptions({
+    this.status = CaptionDeliveryStatus.delivered,
+    this.reportedEnvironment,
+    this.throwOnShow = false,
+  });
+
+  final CaptionDeliveryStatus status;
+  final ExecutionEnvironment? reportedEnvironment;
+  final bool throwOnShow;
+  final gates = <int, Completer<void>>{};
+  final shown = <int>[];
+  final cleared = <String>[];
+  String? visible;
+
+  @override
+  String get adapterId => 'fake-captions';
+  @override
+  ExecutionEnvironment get environment => ExecutionEnvironment.simulated;
+
+  @override
+  Future<CaptionDelivery> show(CaptionUpdate update) async {
+    await gates[update.sequence]?.future;
+    if (throwOnShow) {
+      throw StateError('simulated display failure');
+    }
+    shown.add(update.sequence);
+    final delivered = status == CaptionDeliveryStatus.delivered;
+    if (delivered) {
+      visible = update.text;
+    }
+    return CaptionDelivery(
+      session: update.session,
+      sequence: update.sequence,
+      status: status,
+      environment: reportedEnvironment ?? environment,
+      truthLabel: delivered ? TruthLabel.simulated : TruthLabel.blocked,
+      adapterId: adapterId,
+      reason: delivered ? null : 'capabilityUnavailable',
+    );
+  }
+
+  @override
+  Future<void> clear(TranslationSession session) async {
+    cleared.add(session.sessionId);
+    visible = null;
+  }
+}
 
 LiveTranslationConfig _config({bool localProcessingAllowed = true}) =>
     LiveTranslationConfig(
