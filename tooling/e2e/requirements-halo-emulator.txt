@@ -1,0 +1,3 @@
+# Official Brilliant Labs halo-emulator, pinned to the same SDK revision as
+# packages/halo_adapter (brilliant_ble / brilliant_msg). Used only by E2E tests.
+halo-emulator @ git+https://github.com/brilliantlabsAR/brilliant_sdk@462dff4795cffb85248ab1d2f92d4f319adb03d3#subdirectory=python/packages/halo_emulator
