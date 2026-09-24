@@ -1,4 +1,5 @@
 import 'caption.dart';
+import 'device_adapter.dart';
 import 'live_translation.dart';
 import 'runtime_error.dart';
 import 'truth_label.dart';
@@ -6,7 +7,7 @@ import 'truth_label.dart';
 /// Wire schema of the redacted runtime event stream. Bump on breaking change.
 const String runtimeEventSchema = 'horizon.runtime-event.v1';
 
-enum RuntimeEventKind { sessionState, caption, diagnostic }
+enum RuntimeEventKind { sessionState, caption, diagnostic, deviceState }
 
 /// Session lifecycle as observed on the stream; mirrors the G5 runtime states
 /// without making contracts depend on the runtime package.
@@ -40,6 +41,7 @@ final class RuntimeEvent {
     this.diagnosticCode,
     this.component,
     this.detail,
+    this.deviceState,
   });
 
   factory RuntimeEvent.sessionState({
@@ -97,6 +99,23 @@ final class RuntimeEvent {
         detail: _optionalToken(diagnostic.detail),
       );
 
+  /// Device link state. [environment] is declared by the composition root from
+  /// the transport actually used; a fixture is never HALO_REAL.
+  factory RuntimeEvent.deviceState({
+    required int streamSequence,
+    required DeviceAdapterSnapshot snapshot,
+    required ExecutionEnvironment environment,
+  }) =>
+      RuntimeEvent._(
+        kind: RuntimeEventKind.deviceState,
+        streamSequence: streamSequence,
+        observedAtMicros: snapshot.observedAtMicros,
+        deviceState: snapshot.state,
+        adapterId: redactToken(snapshot.adapterId),
+        environment: environment,
+        truthLabel: snapshot.truthLabel,
+      );
+
   final RuntimeEventKind kind;
   final int streamSequence;
   final int observedAtMicros;
@@ -112,6 +131,7 @@ final class RuntimeEvent {
   final LiveTranslationDiagnosticCode? diagnosticCode;
   final String? component;
   final String? detail;
+  final DeviceConnectionState? deviceState;
 
   static final RegExp _token = RegExp(r'^[A-Za-z0-9_.:-]{1,64}$');
 
@@ -153,6 +173,12 @@ final class RuntimeEvent {
               'truth': truthLabel!.name.toUpperCase(),
               'adapter': adapterId,
               'reason': detail,
+            },
+          RuntimeEventKind.deviceState => <String, Object?>{
+              'state': deviceState!.name,
+              'adapter': adapterId,
+              'environment': environmentWire(environment!),
+              'truth': truthLabel!.name.toUpperCase(),
             },
           RuntimeEventKind.diagnostic => <String, Object?>{
               'code': diagnosticCode!.name,

@@ -67,6 +67,30 @@ void main() {
     _golden('runtime-events.failure.v1.ndjson', lines);
   });
 
+  test('device snapshots carry the declared environment, never inferred',
+      () async {
+    final StreamController<DeviceAdapterSnapshot> device =
+        StreamController<DeviceAdapterSnapshot>();
+    final _Scenario s = await _Scenario.start(deviceSnapshots: device.stream);
+    device.add(const DeviceAdapterSnapshot(
+      state: DeviceConnectionState.ready,
+      adapterId: 'halo device adapter with spaces',
+      sourceRevision: 'r',
+      truthLabel: TruthLabel.prepared,
+      observedAtMicros: 5,
+    ));
+    await Future<void>.delayed(Duration.zero);
+    final List<Map<String, Object?>> events = _decode(await s.finish());
+    final Map<String, Object?> deviceEvent =
+        events.singleWhere((e) => e['kind'] == 'deviceState');
+    expect(deviceEvent['state'], 'ready');
+    expect(deviceEvent['environment'], 'EMULATED');
+    expect(deviceEvent['truth'], 'PREPARED');
+    expect(deviceEvent['adapter'], 'redacted');
+    expect(deviceEvent['session'], isNull);
+    await device.close();
+  });
+
   test('free-form diagnostic detail is reduced to a coded token', () {
     const LiveTranslationDiagnostic diagnostic = LiveTranslationDiagnostic(
       code: LiveTranslationDiagnosticCode.providerUnavailable,
@@ -152,7 +176,8 @@ final class _Scenario {
     privacyGeneration: 1,
   );
 
-  static Future<_Scenario> start() async {
+  static Future<_Scenario> start(
+      {Stream<DeviceAdapterSnapshot>? deviceSnapshots}) async {
     int runtimeTick = 1000;
     int captionTick = 900000;
     final _Input input = _Input();
@@ -166,8 +191,12 @@ final class _Scenario {
       captions: captions,
       clock: () => DateTime.fromMicrosecondsSinceEpoch(runtimeTick += 10),
     );
-    final RuntimeEventStream stream =
-        RuntimeEventStream(runtime, nowMicros: () => captionTick += 10);
+    final RuntimeEventStream stream = RuntimeEventStream(
+      runtime,
+      nowMicros: () => captionTick += 10,
+      deviceSnapshots: deviceSnapshots,
+      deviceEnvironment: ExecutionEnvironment.emulated,
+    );
     final _Scenario s = _Scenario._(runtime, stream, input, stt, captions);
     s._sub = stream.events.listen(
         (RuntimeEvent e) => s._lines.add(RuntimeEventStream.encodeLine(e)));
