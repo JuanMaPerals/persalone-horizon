@@ -114,6 +114,32 @@ void main() {
       await runtime.dispose();
     });
 
+    test('fails closed and stops active resources after a mid-session STT failure',
+        () async {
+      final input = _FakeInput();
+      final stt = _FakeStt()..failPush = true;
+      final translator = _FakeTranslator();
+      final tts = _FakeTts();
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+      final config = _config();
+
+      await runtime.start(config: config, audioSession: _audioSession());
+      input.framesController.add(_frame());
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(runtime.state, HorizonTranslationRuntimeState.failed);
+      expect(input.stopCalls, 1);
+      expect(stt.stopCalls, 1);
+      expect(tts.stopCalls, 1);
+
+      await runtime.dispose();
+    });
+
     test('stops current synthesis before each new final turn for barge-in',
         () async {
       final input = _FakeInput();
@@ -202,6 +228,7 @@ final class _FakeInput implements AudioInputAdapter {
   final _diagnostics = StreamController<AudioDiagnostic>.broadcast();
   final _latencies = StreamController<AudioLatencyMeasurement>.broadcast();
   int requestPermissionCalls = 0;
+  int stopCalls = 0;
 
   @override
   String get adapterId => 'fake-input';
@@ -225,7 +252,9 @@ final class _FakeInput implements AudioInputAdapter {
   Future<void> start(
       AudioSessionDescriptor session, AudioFormat format) async {}
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stopCalls += 1;
+  }
   @override
   Future<void> dispose() async {
     await framesController.close();
@@ -241,6 +270,8 @@ final class _FakeStt implements StreamingSttProvider {
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
   int prepareCalls = 0;
   int pushedFrames = 0;
+  int stopCalls = 0;
+  bool failPush = false;
 
   @override
   String get providerId => 'fake-stt';
@@ -260,10 +291,15 @@ final class _FakeStt implements StreamingSttProvider {
   @override
   Future<void> push(AudioFrame frame) async {
     pushedFrames += 1;
+    if (failPush) {
+      throw StateError('simulated STT failure');
+    }
   }
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stopCalls += 1;
+  }
   @override
   Future<void> dispose() async {
     await transcriptController.close();
