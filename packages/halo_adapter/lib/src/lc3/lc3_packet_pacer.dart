@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_single_quotes
+
 import 'dart:collection';
 import 'dart:async';
 import 'dart:typed_data';
@@ -11,7 +13,7 @@ class Lc3PacketPacer {
   Timer? _pacerTimer;
   final int intervalMs;
   bool _reportWhenDone = false;
-  Function? _doneCallback;
+  void Function()? _doneCallback;
 
   // Max ms of audio to buffer before dropping oldest packets
   // NB: if whole clips are encoded for playback, this buffer should
@@ -45,7 +47,7 @@ class Lc3PacketPacer {
     }
   }
 
-  void setDoneCallback(Function doneCallback) {
+  void setDoneCallback(void Function() doneCallback) {
     // When the user indicates no more packets will be added,
     // we can check to see if the buffer is already empty
     // (already played out) and call the doneCallback immediately.
