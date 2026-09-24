@@ -114,7 +114,8 @@ void main() {
       await runtime.dispose();
     });
 
-    test('fails closed and stops active resources after a mid-session STT failure',
+    test(
+        'fails closed and stops active resources after a mid-session STT failure',
         () async {
       final input = _FakeInput();
       final stt = _FakeStt()..failPush = true;
@@ -164,6 +165,92 @@ void main() {
 
       expect(tts.stopCalls, 2);
       expect(tts.spoken.map((segment) => segment.sequence), [4, 5]);
+      await runtime.dispose();
+    });
+
+    test(
+        'never publishes or speaks an older final turn after a newer one '
+        'when translation latencies are inverted', () async {
+      final input = _FakeInput();
+      final stt = _FakeStt();
+      final translator = _FakeTranslator()
+        ..gates[10] = Completer<void>()
+        ..gates[11] = Completer<void>();
+      final tts = _FakeTts();
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+      final published = <int>[];
+      final translationsSub =
+          runtime.translations.listen((t) => published.add(t.sequence));
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      final diagnosticsSub = runtime.diagnostics.listen(diagnostics.add);
+      final config = _config();
+
+      await runtime.start(config: config, audioSession: _audioSession());
+      stt.transcriptController.add(
+          _transcript(config.session, 10, TranscriptStability.finalResult));
+      await _drain();
+      stt.transcriptController.add(
+          _transcript(config.session, 11, TranscriptStability.finalResult));
+      await _drain();
+      expect(translator.translated.map((s) => s.sequence), [10, 11]);
+
+      translator.gates[11]!.complete();
+      await _drain();
+      expect(tts.spoken.map((segment) => segment.sequence), [11]);
+
+      translator.gates[10]!.complete();
+      await _drain();
+
+      expect(tts.spoken.map((segment) => segment.sequence), [11]);
+      expect(published, [11]);
+      expect(
+        diagnostics.any((event) =>
+            event.code ==
+                LiveTranslationDiagnosticCode.staleCallbackDiscarded &&
+            event.sequence == 10),
+        isTrue,
+      );
+      await translationsSub.cancel();
+      await diagnosticsSub.cancel();
+      await runtime.dispose();
+    });
+
+    test(
+        'keeps both overlapping final turns in order when translations '
+        'complete in order', () async {
+      final input = _FakeInput();
+      final stt = _FakeStt();
+      final translator = _FakeTranslator()
+        ..gates[20] = Completer<void>()
+        ..gates[21] = Completer<void>();
+      final tts = _FakeTts();
+      final runtime = HorizonTranslationRuntime(
+        input: input,
+        stt: stt,
+        translator: translator,
+        synthesizer: tts,
+      );
+      final config = _config();
+
+      await runtime.start(config: config, audioSession: _audioSession());
+      stt.transcriptController.add(
+          _transcript(config.session, 20, TranscriptStability.finalResult));
+      await _drain();
+      stt.transcriptController.add(
+          _transcript(config.session, 21, TranscriptStability.finalResult));
+      await _drain();
+
+      translator.gates[20]!.complete();
+      await _drain();
+      translator.gates[21]!.complete();
+      await _drain();
+
+      expect(tts.spoken.map((segment) => segment.sequence), [20, 21]);
       await runtime.dispose();
     });
   });
@@ -255,6 +342,7 @@ final class _FakeInput implements AudioInputAdapter {
   Future<void> stop() async {
     stopCalls += 1;
   }
+
   @override
   Future<void> dispose() async {
     await framesController.close();
@@ -300,6 +388,7 @@ final class _FakeStt implements StreamingSttProvider {
   Future<void> stop() async {
     stopCalls += 1;
   }
+
   @override
   Future<void> dispose() async {
     await transcriptController.close();
@@ -312,6 +401,7 @@ final class _FakeTranslator implements TextTranslationProvider {
   final _snapshots = StreamController<ProviderSnapshot>.broadcast();
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
   final translated = <TranscriptSegment>[];
+  final gates = <int, Completer<void>>{};
   int prepareCalls = 0;
 
   @override
@@ -331,6 +421,7 @@ final class _FakeTranslator implements TextTranslationProvider {
   Future<TranslationSegment> translate(
       TranscriptSegment finalTranscript) async {
     translated.add(finalTranscript);
+    await gates[finalTranscript.sequence]?.future;
     return TranslationSegment(
       session: finalTranscript.session,
       sequence: finalTranscript.sequence,
