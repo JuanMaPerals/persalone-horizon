@@ -144,7 +144,7 @@ final class HorizonTranslationRuntime {
       _transcriptSubscription = _stt.transcripts.listen(
         _onTranscript,
         onError: (Object error, StackTrace stackTrace) {
-          _fail(error, stackTrace);
+          unawaited(_fail(error, stackTrace));
         },
       );
       await _input.start(audioSession, format);
@@ -154,13 +154,12 @@ final class HorizonTranslationRuntime {
           unawaited(_onFrame(frame));
         },
         onError: (Object error, StackTrace stackTrace) {
-          _fail(error, stackTrace);
+          unawaited(_fail(error, stackTrace));
         },
       );
       _setState(HorizonTranslationRuntimeState.listening);
     } on Object catch (error, stackTrace) {
-      await _stopActiveResources();
-      _fail(error, stackTrace);
+      await _fail(error, stackTrace);
       rethrow;
     }
   }
@@ -218,7 +217,7 @@ final class HorizonTranslationRuntime {
       await _stt.push(frame);
     } on Object catch (error, stackTrace) {
       if (_isCurrent(config.session)) {
-        _fail(error, stackTrace);
+        await _fail(error, stackTrace);
       } else {
         _emitDiagnostic(
           LiveTranslationDiagnosticCode.staleCallbackDiscarded,
@@ -292,7 +291,7 @@ final class HorizonTranslationRuntime {
           component: 'runtime',
           sequence: transcript.sequence,
         );
-        _fail(error, stackTrace);
+        await _fail(error, stackTrace);
       } else {
         _discardStale('runtime', transcript.sequence);
       }
@@ -353,14 +352,57 @@ final class HorizonTranslationRuntime {
     );
   }
 
-  void _fail(Object error, StackTrace stackTrace) {
-    if (_disposed) {
+  Future<void> _fail(Object error, StackTrace stackTrace) async {
+    if (_disposed ||
+        _state == HorizonTranslationRuntimeState.failed ||
+        _state == HorizonTranslationRuntimeState.stopping ||
+        _state == HorizonTranslationRuntimeState.stopped) {
       return;
     }
     final errorCode = error is RuntimeError
         ? error.code
         : RuntimeErrorCode.providerUnavailable;
+
+    // Publish the failure while the session identity is still available, then
+    // invalidate it before any asynchronous teardown. Late frames/transcripts
+    // are therefore stale immediately and cannot continue translation or TTS.
     _setState(HorizonTranslationRuntimeState.failed, failureCode: errorCode);
+    _config = null;
+    await _stopActiveResourcesAfterFailure();
+  }
+
+  Future<void> _stopActiveResourcesAfterFailure() async {
+    final frameSubscription = _frameSubscription;
+    _frameSubscription = null;
+    final transcriptSubscription = _transcriptSubscription;
+    _transcriptSubscription = null;
+    final diagnosticSubscriptions =
+        List<StreamSubscription<LiveTranslationDiagnostic>>.from(
+      _providerDiagnosticSubscriptions,
+    );
+    _providerDiagnosticSubscriptions.clear();
+
+    Future<void> bestEffort(Future<void> Function() operation) async {
+      try {
+        await operation();
+      } on Object {
+        // The runtime is already failed. Teardown continues so one broken
+        // provider cannot leave the microphone or another provider active.
+      }
+    }
+
+    if (frameSubscription != null) {
+      await bestEffort(frameSubscription.cancel);
+    }
+    if (transcriptSubscription != null) {
+      await bestEffort(transcriptSubscription.cancel);
+    }
+    for (final subscription in diagnosticSubscriptions) {
+      await bestEffort(subscription.cancel);
+    }
+    await bestEffort(_input.stop);
+    await bestEffort(_stt.stop);
+    await bestEffort(_synthesizer.stop);
   }
 
   void _setState(
