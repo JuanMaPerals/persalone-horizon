@@ -3,6 +3,7 @@ library;
 export 'src/audio.dart';
 export 'src/caption.dart';
 export 'src/capability.dart';
+export 'src/control_envelope.dart';
 export 'src/device_adapter.dart';
 export 'src/live_translation.dart';
 export 'src/runtime_control.dart';
