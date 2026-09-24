@@ -5,6 +5,7 @@ import 'package:brilliant_ble/brilliant_ble.dart';
 import 'package:brilliant_msg/brilliant_msg.dart' show RxAudio;
 
 import 'halo_audio_transport.dart';
+import 'halo_bounded_display.dart';
 import 'halo_transport.dart';
 
 /// Official Brilliant SDK transport, deliberately limited to the safe G2
@@ -148,6 +149,23 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
       throw StateError('Halo returned no Lua response.');
     }
     return response;
+  }
+
+  @override
+  Future<void> executeDisplayCommand(HaloDisplayCommand command) async {
+    if (!HaloBoundedDisplay.isAcceptable(command.lua)) {
+      throw StateError('Display command is outside the bounded grammar.');
+    }
+    // log: false keeps caption text (runtime data plane) out of SDK logs.
+    final String? response = await _readyDevice.sendString(
+      command.lua,
+      awaitResponse: true,
+      log: false,
+      timeout: const Duration(seconds: 2),
+    );
+    if (response == null || _lastLine(response) != '1') {
+      throw StateError('Halo did not acknowledge the display command.');
+    }
   }
 
   @override
