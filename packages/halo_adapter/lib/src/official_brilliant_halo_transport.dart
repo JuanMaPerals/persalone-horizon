@@ -2,13 +2,15 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:brilliant_ble/brilliant_ble.dart';
+import 'package:brilliant_msg/brilliant_msg.dart' show RxAudio;
 
+import 'halo_audio_transport.dart';
 import 'halo_transport.dart';
 
 /// Official Brilliant SDK transport, deliberately limited to the safe G2
 /// surface. The device-side USERDATA application protocol is not enabled here
 /// because no reviewed Halo Lua application has been deployed.
-final class OfficialBrilliantHaloTransport implements HaloTransport {
+final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTransport {
   OfficialBrilliantHaloTransport();
 
   static const String brilliantSdkRevision =
@@ -23,6 +25,12 @@ final class OfficialBrilliantHaloTransport implements HaloTransport {
   StreamSubscription<BrilliantScannedDevice>? _scanSubscription;
   StreamSubscription<BrilliantDevice>? _connectionSubscription;
   BrilliantDevice? _device;
+  RxAudio? _rxAudio;
+
+  static const int _startListeningMsg = 0x30;
+  static const int _stopListeningMsg = 0x31;
+  static const int _startPlaybackMsg = 0x40;
+  static const int _stopPlaybackMsg = 0x41;
 
   @override
   Stream<HaloTransportDiscovery> get discoveries => _discoveries.stream;
@@ -165,7 +173,62 @@ final class OfficialBrilliantHaloTransport implements HaloTransport {
   }
 
   @override
+  Stream<Uint8List> get encodedMicrophoneAudio {
+    final RxAudio audio = _rxAudio ??= RxAudio(streaming: true);
+    return audio.attach(_readyDevice.dataResponse);
+  }
+
+  @override
+  Future<void> startMicrophone({
+    int gain = 10,
+    bool echoCancellation = true,
+    bool voiceMode = true,
+  }) async {
+    await _readyDevice.sendMessage(
+      _startListeningMsg,
+      Uint8List.fromList(<int>[
+        gain.clamp(0, 20),
+        echoCancellation ? 1 : 0,
+        voiceMode ? 1 : 0,
+      ]),
+    );
+  }
+
+  @override
+  Future<void> stopMicrophone() async {
+    await _readyDevice.sendMessage(
+      _stopListeningMsg,
+      Uint8List.fromList(<int>[0]),
+    );
+    _rxAudio?.detach();
+    _rxAudio = null;
+  }
+
+  @override
+  Future<void> startSpeaker({int volume = 100}) async {
+    await _readyDevice.sendMessage(
+      _startPlaybackMsg,
+      Uint8List.fromList(<int>[volume.clamp(0, 100)]),
+    );
+  }
+
+  @override
+  Future<void> sendEncodedSpeakerAudio(Uint8List lc3Frame) async {
+    await _readyDevice.sendAudio(lc3Frame);
+  }
+
+  @override
+  Future<void> stopSpeaker() async {
+    await _readyDevice.sendMessage(
+      _stopPlaybackMsg,
+      Uint8List.fromList(<int>[0]),
+    );
+  }
+
+  @override
   Future<void> disconnect() async {
+    _rxAudio?.detach();
+    _rxAudio = null;
     await _connectionSubscription?.cancel();
     _connectionSubscription = null;
     final BrilliantDevice? device = _device;

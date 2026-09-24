@@ -8,7 +8,8 @@ abstract base class _PreparedHaloAudioAdapter {
   _PreparedHaloAudioAdapter({required this.adapterId});
 
   static const String revision =
-      'halo-firmware@78bb15368f78ffe94b1b77b5f592ebe7a3f001a3';
+      'halo-firmware@78bb15368f78ffe94b1b77b5f592ebe7a3f001a3;'
+      'brilliant_sdk@462dff4795cffb85248ab1d2f92d4f319adb03d3';
   static final Stopwatch _clock = Stopwatch()..start();
 
   final String adapterId;
