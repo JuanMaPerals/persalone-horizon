@@ -23,10 +23,10 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
   static const String haloFirmwareRevision =
       '78bb15368f78ffe94b1b77b5f592ebe7a3f001a3';
   static const String brilliantSdkRevision =
-      '9a4cacf7d395195fad338bdb971b2c1ebf484180';
+      '462dff4795cffb85248ab1d2f92d4f319adb03d3';
   static const String _sourceRevision =
       'halo-firmware@78bb15368f78ffe94b1b77b5f592ebe7a3f001a3;'
-      'brilliant_sdk@9a4cacf7d395195fad338bdb971b2c1ebf484180';
+      'brilliant_sdk@462dff4795cffb85248ab1d2f92d4f319adb03d3';
   static final Stopwatch _clock = Stopwatch()..start();
 
   final HaloTransport _transport;
