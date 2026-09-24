@@ -88,6 +88,60 @@ void main() {
     _ndjson('positive', h.eventLines);
   });
 
+  test('latency: turns through the emulated HUD are measured, not assumed',
+      skip: _skip, () async {
+    const int turns = 30;
+    for (int turn = 1; turn <= turns; turn++) {
+      h.translator.outputs[turn] = 'CAPTION NUMBER $turn';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+    }
+    await h.settle();
+    final List<Map<String, Object?>> latency = h.eventLines
+        .map((String l) => jsonDecode(l) as Map<String, Object?>)
+        .where((Map<String, Object?> e) => e['kind'] == 'latency')
+        .toList();
+    List<int> micros(String stage) => <int>[
+          for (final Map<String, Object?> e in latency)
+            if (e['stage'] == stage) e['micros']! as int,
+        ];
+    final List<int> caption = micros('finalToCaption');
+    expect(caption, hasLength(turns));
+    expect(caption, everyElement(greaterThan(0)));
+    expect(
+      latency
+          .where((Map<String, Object?> e) => e['stage'] == 'finalToCaption')
+          .map((Map<String, Object?> e) => e['environment']),
+      everyElement('EMULATED'),
+      reason: 'the caption interval is closed by the emulated HUD',
+    );
+    expect(latency.map((Map<String, Object?> e) => e['truth']),
+        everyElement('MEASURED'));
+    expect(h.eventLines.join('\n'), isNot(contains('CAPTION NUMBER')));
+
+    final Map<String, Object?> summary = <String, Object?>{
+      'environment': 'EMULATED HUD, SIMULATED providers, not hardware',
+      'clock': 'runtime monotonic (Stopwatch)',
+      for (final String stage in <String>[
+        'finalToTranslation',
+        'translationToCaption',
+        'finalToCaption',
+        'finalToSpeechQueued',
+      ])
+        stage: _stats(micros(stage)),
+      'speechEndToFinal': 'UNKNOWN',
+      'speechQueuedToAudible': 'UNKNOWN',
+    };
+    _ndjson('latency', h.eventLines);
+    final String? dir = _artifacts;
+    if (dir != null) {
+      File('$dir/latency_emulated_summary.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(summary));
+    }
+    // ignore: avoid_print
+    print('LATENCY_EMULATED ${jsonEncode(summary)}');
+  });
+
   test('stale turn: an older translation never reaches the framebuffer',
       skip: _skip, () async {
     h.translator
@@ -209,6 +263,20 @@ void main() {
       isTrue,
     );
   });
+}
+
+/// Nearest-rank p50/p95, withheld below 5 and 20 samples (as the Console).
+Map<String, Object?> _stats(List<int> values) {
+  final List<int> sorted = <int>[...values]..sort();
+  int? rank(double p, int minimum) => sorted.length < minimum
+      ? null
+      : sorted[((p / 100) * sorted.length).ceil().clamp(1, sorted.length) - 1];
+  return <String, Object?>{
+    'samples': sorted.length,
+    'latestMicros': values.isEmpty ? null : values.last,
+    'p50Micros': rank(50, 5),
+    'p95Micros': rank(95, 20),
+  };
 }
 
 void _ndjson(String name, List<String> lines) {

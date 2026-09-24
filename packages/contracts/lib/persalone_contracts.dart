@@ -11,3 +11,4 @@ export 'src/runtime_error.dart';
 export 'src/runtime_event.dart';
 export 'src/session.dart';
 export 'src/truth_label.dart';
+export 'src/turn_latency.dart';

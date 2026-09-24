@@ -20,7 +20,8 @@ final class RuntimeEventStream {
     _subscriptions
       ..add(runtime.snapshots.listen(_onSnapshot))
       ..add(runtime.captionDeliveries.listen(_onCaption))
-      ..add(runtime.diagnostics.listen(_onDiagnostic));
+      ..add(runtime.diagnostics.listen(_onDiagnostic))
+      ..add(runtime.latencies.listen(_onLatency));
     if (deviceSnapshots != null) {
       _subscriptions.add(deviceSnapshots.listen(
         (DeviceAdapterSnapshot snapshot) => _emit(RuntimeEvent.deviceState(
@@ -82,6 +83,16 @@ final class RuntimeEventStream {
     _emit(RuntimeEvent.diagnostic(
       streamSequence: ++_sequence,
       diagnostic: diagnostic,
+      sessionId: _sessionId,
+      streamEpoch: _streamEpoch,
+    ));
+  }
+
+  void _onLatency(TurnLatencySample sample) {
+    _emit(RuntimeEvent.latency(
+      streamSequence: ++_sequence,
+      observedAtMicros: _nowMicros(),
+      sample: sample,
       sessionId: _sessionId,
       streamEpoch: _streamEpoch,
     ));

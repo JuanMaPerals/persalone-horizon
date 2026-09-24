@@ -91,6 +91,41 @@ void main() {
     await device.close();
   });
 
+  test('latency: measured turn intervals on the v1 stream, no text', () async {
+    final _Scenario s = await _Scenario.start();
+    for (int turn = 1; turn <= 24; turn++) {
+      await s.finalTurn(
+          turn,
+          turn == 7
+              ? CaptionDeliveryStatus.blocked
+              : CaptionDeliveryStatus.delivered);
+    }
+    await s.runtime.stop();
+    final List<String> lines = await s.finish();
+
+    final List<Map<String, Object?>> events = _decode(lines);
+    final List<Map<String, Object?>> latency =
+        events.where((e) => e['kind'] == 'latency').toList();
+    Iterable<Map<String, Object?>> stage(String name) =>
+        latency.where((e) => e['stage'] == name);
+    expect(stage('finalToTranslation'), hasLength(24));
+    expect(stage('finalToSpeechQueued'), hasLength(24));
+    // A blocked caption was never shown: no caption interval for turn 7.
+    expect(stage('finalToCaption'), hasLength(23));
+    expect(stage('finalToCaption').map((e) => e['turn']), isNot(contains(7)));
+    expect(stage('finalToCaption').map((e) => e['environment']),
+        everyElement('SIMULATED'));
+    expect(stage('finalToTranslation').map((e) => e['environment']),
+        everyElement(isNull));
+    expect(latency.map((e) => e['truth']), everyElement('MEASURED'));
+    for (final Map<String, Object?> e in latency) {
+      expect(e['micros'], isA<int>());
+      expect(e['micros']! as int, greaterThan(0));
+    }
+    _expectRedactedAndOrdered(lines, events);
+    _golden('runtime-events.latency.v1.ndjson', lines);
+  });
+
   test('free-form diagnostic detail is reduced to a coded token', () {
     const LiveTranslationDiagnostic diagnostic = LiveTranslationDiagnostic(
       code: LiveTranslationDiagnosticCode.providerUnavailable,
@@ -180,6 +215,7 @@ final class _Scenario {
       {Stream<DeviceAdapterSnapshot>? deviceSnapshots}) async {
     int runtimeTick = 1000;
     int captionTick = 900000;
+    int monotonicTick = 0;
     final _Input input = _Input();
     final _Stt stt = _Stt();
     final _Captions captions = _Captions();
@@ -190,6 +226,8 @@ final class _Scenario {
       synthesizer: _Tts(),
       captions: captions,
       clock: () => DateTime.fromMicrosecondsSinceEpoch(runtimeTick += 10),
+      // Deterministic monotonic clock: each reading advances 1.5 ms.
+      monotonicMicros: () => monotonicTick += 1500,
     );
     final RuntimeEventStream stream = RuntimeEventStream(
       runtime,

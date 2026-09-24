@@ -1,6 +1,10 @@
 import { type ChangeEvent, type ReactElement, useEffect, useRef, useState } from 'react';
 import { RuntimeStreamClient, type LiveSnapshot } from '../runtime/liveStream';
 import {
+  LATENCY_STAGES,
+  MIN_SAMPLES_P50,
+  MIN_SAMPLES_P95,
+  UNOBSERVABLE_LATENCY_STAGES,
   parseRuntimeEventStream,
   reduceRuntimeEvents,
   runtimeControlAvailability,
@@ -9,6 +13,8 @@ import {
 } from '../runtime/runtimeEvents';
 
 const controls: readonly RuntimeControl[] = ['start', 'stop', 'panic'];
+
+const ms = (value: number | string): string => (typeof value === 'number' ? `${(value / 1000).toFixed(1)} ms` : value);
 const defaultUrl = 'http://127.0.0.1:47800/v1/runtime-events';
 
 export function RuntimeStatePanel(): ReactElement {
@@ -79,6 +85,30 @@ export function RuntimeStatePanel(): ReactElement {
       <div><dt>Last error</dt><dd>{view ? (view.lastError ? `${view.lastError.code}${view.lastError.detail ? ` · ${view.lastError.detail}` : ''}` : 'none observed') : 'UNKNOWN'}</dd></div>
       <div><dt>Last sequence</dt><dd>{value((v) => v.lastSequence ?? 'UNKNOWN')}</dd></div>
     </dl>
+    <table className="latency-table" aria-label="Turn latency">
+      <caption>Turn latency · monotonic runtime clock · p50 needs {MIN_SAMPLES_P50}+ samples, p95 needs {MIN_SAMPLES_P95}+</caption>
+      <thead>
+        <tr><th scope="col">Stage</th><th scope="col">Latest</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">Samples</th><th scope="col">Environment</th><th scope="col">Evidence</th></tr>
+      </thead>
+      <tbody>
+        {LATENCY_STAGES.map((stage) => {
+          const stat = view?.latency[stage];
+          return <tr key={stage}>
+            <th scope="row">{stage}</th>
+            <td>{stat ? ms(stat.latestMicros) : 'UNKNOWN'}</td>
+            <td>{stat ? ms(stat.p50Micros) : 'UNKNOWN'}</td>
+            <td>{stat ? ms(stat.p95Micros) : 'UNKNOWN'}</td>
+            <td>{stat ? stat.samples : 'UNKNOWN'}</td>
+            <td>{stat ? stat.environment : 'UNKNOWN'}</td>
+            <td>{stat ? stat.truth : 'UNKNOWN'}</td>
+          </tr>;
+        })}
+        {UNOBSERVABLE_LATENCY_STAGES.map((stage) => <tr key={stage}>
+          <th scope="row">{stage}</th>
+          <td colSpan={6}>UNKNOWN · not observable on the runtime clock</td>
+        </tr>)}
+      </tbody>
+    </table>
     <div className="runtime-controls">
       {controls.map((control) => {
         const availability = runtimeControlAvailability(control);

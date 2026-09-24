@@ -129,4 +129,4 @@ dt { color: #8290a7; font-size: 10px; text-transform: uppercase; letter-spacing:
 .export-button { width: 100%; }
 .community-status { margin: 10px 0 0; color: #7dd3fc; font-size: 10px; }
 .community-note { margin: 10px 0 0; color: #8390a4; font-size: 10px; line-height: 1.5; }
-@media (max-width: 1280px) { .community-lab-grid { grid-template-columns: 220px minmax(320px, 1fr); }.contribution-column { grid-column: 1 / -1; } }
+@media (max-width: 1280px) { .community-lab-grid { grid-template-columns: 220px minmax(320px, 1fr); }.contribution-column { grid-column: 1 / -1; } }.latency-table { width: 100%; border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }.latency-table caption { text-align: left; color: #8f9cb0; padding-bottom: 6px; }.latency-table th, .latency-table td { padding: 5px 4px; border-bottom: 1px solid #222c3f; text-align: right; }.latency-table th[scope="row"], .latency-table thead th:first-child { text-align: left; font-weight: 500; }
