@@ -97,6 +97,8 @@ enum LiveTranslationDiagnosticCode {
   captionDelivered,
   captionBlocked,
   captionFailed,
+  panicExecuted,
+  cleanupFailed,
 }
 
 /// Redacted event from a G5 provider or runtime. [detail] must never contain
