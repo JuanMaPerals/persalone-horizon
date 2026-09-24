@@ -1,3 +1,5 @@
+// ignore_for_file: prefer_single_quotes
+
 import 'dart:async';
 import 'dart:ffi';
 import 'dart:isolate';
@@ -46,7 +48,7 @@ class Lc3EncoderService {
   final Completer<void> _isolateReadyCompleter = Completer<void>();
   // user can provide a callback when they send final PCM data
   // to find out when all the corresponding LC3 data has been sent back
-  Function? _doneCallback;
+  void Function()? _doneCallback;
 
   // This stream emits encoded LC3 frames as Uint8List
   final StreamController<Uint8List> _outputStreamController =
@@ -100,7 +102,7 @@ class Lc3EncoderService {
 
   /// Sends a chunk of PCM data to the encoder isolate.
   /// This uses [TransferableTypedData] for a zero-copy transfer.
-  void sendPcmChunk(Uint8List pcmChunk, {Function? onDone}) {
+  void sendPcmChunk(Uint8List pcmChunk, {void Function()? onDone}) {
     if (_isolateSendPort == null) {
       _log.severe('Error: Isolate not ready. Call init() and wait.');
       return;
