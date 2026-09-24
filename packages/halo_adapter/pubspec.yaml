@@ -13,7 +13,7 @@ dependencies:
   brilliant_ble:
     git:
       url: https://github.com/brilliantlabsAR/brilliant_sdk.git
-      ref: 9a4cacf7d395195fad338bdb971b2c1ebf484180
+      ref: 462dff4795cffb85248ab1d2f92d4f319adb03d3
       path: flutter/packages/brilliant_ble
 dev_dependencies:
   lints: ^5.1.1
