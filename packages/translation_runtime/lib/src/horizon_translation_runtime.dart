@@ -72,6 +72,8 @@ final class HorizonTranslationRuntime {
   HorizonTranslationRuntimeState _state = HorizonTranslationRuntimeState.idle;
   LiveTranslationConfig? _config;
   bool _disposed = false;
+  int _turnCounter = 0;
+  int _lastDeliveredTurn = 0;
 
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
@@ -254,6 +256,7 @@ final class HorizonTranslationRuntime {
 
   Future<void> _translateAndSpeak(TranscriptSegment transcript) async {
     final session = transcript.session;
+    final turn = ++_turnCounter;
     if (!_isCurrent(session)) {
       _discardStale('runtime', transcript.sequence);
       return;
@@ -267,10 +270,15 @@ final class HorizonTranslationRuntime {
         return;
       }
       final translation = await _translator.translate(transcript);
-      if (!_isCurrent(session) || !_matches(translation.session, session)) {
+      // Translations may complete out of order; a turn older than one already
+      // delivered must never replace its caption or be spoken after it.
+      if (!_isCurrent(session) ||
+          !_matches(translation.session, session) ||
+          turn < _lastDeliveredTurn) {
         _discardStale('translation', transcript.sequence);
         return;
       }
+      _lastDeliveredTurn = turn;
       _translations.add(translation);
       _emitDiagnostic(
         LiveTranslationDiagnosticCode.translationCompleted,
