@@ -22,8 +22,9 @@ String? get _skip {
 void main() {
   test('Console client follows the live runtime stream and fails closed',
       skip: _skip, () async {
-    if (_node == null)
+    if (_node == null) {
       fail('HORIZON_E2E_REQUIRED=1 but HORIZON_E2E_NODE unset');
+    }
     final _Proxy proxy = await _Proxy.start();
     final _Probe probe = await _Probe.start(_node!, proxy.url);
     _Rig? a;
