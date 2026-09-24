@@ -57,7 +57,9 @@ void main() {
     expect(shown.suspended, isFalse, reason: 'first caption wakes display');
     expect(shown.lower, greaterThan(0));
     expect(shown.upper, 0);
-    expect(shown.lit, shown.lower);
+    expect(shown.outside, 0);
+    expect(shown.bbox![1],
+        greaterThanOrEqualTo(HaloCaptionComposer.lineTops.first - 1));
     expect(h.tts.spoken.map((TranslationSegment s) => s.sequence), <int>[1]);
     expect(
       h.deliveries.where((CaptionDelivery d) =>
@@ -167,7 +169,7 @@ void main() {
     await h.waitForDeliveries(3);
     expect(h.deliveries[2].status, CaptionDeliveryStatus.delivered);
     expect(h.transport.sentDisplayCommands.last,
-        startsWith('frame.display.power_save(false)'));
+        startsWith('local d=frame.display d.power_save(false)'));
     final EmulatorFrame restored =
         await h.transport.frame(png: _png('restart'));
     expect(restored.suspended, isFalse);
@@ -179,7 +181,7 @@ void main() {
     h.translator
       ..outputs[1] = '")PWNED=1 frame.display.clear() os.exit()--'
       ..outputs[2] = 'x\n)PWNED=2 --'
-      ..outputs[3] = 'A' * (HaloBoundedDisplay.maxTextBytes + 1);
+      ..outputs[3] = 'A' * (HaloCaptionComposer.maxInputChars + 1);
 
     h.addFinal(1);
     await h.waitForDeliveries(1);
@@ -229,8 +231,8 @@ Future<EmulatorHaloTransport> _referenceRender(String text) async {
       EmulatorHaloTransport(python: _python!, bridgeScript: _bridge);
   await transport.connect(const HaloTransportDiscovery(
       reconnectId: 'reference', displayName: 'reference'));
-  await transport
-      .executeDisplayCommand(HaloBoundedDisplay.text(text, powerOn: true));
+  await transport.executeDisplayCommand(
+      HaloCaptionComposer.compose(text).command(0, powerOn: true));
   return transport;
 }
 

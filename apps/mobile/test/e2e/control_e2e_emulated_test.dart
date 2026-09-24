@@ -205,7 +205,7 @@ void main() {
     await reference.connect(const HaloTransportDiscovery(
         reconnectId: 'reference', displayName: 'reference'));
     await reference.executeDisplayCommand(
-        HaloBoundedDisplay.text('NEW TURN', powerOn: true));
+        HaloCaptionComposer.compose('NEW TURN').command(0, powerOn: true));
     final EmulatorFrame expected = await reference.frame();
     await reference.dispose();
     expect(shown.sha256, expected.sha256,

@@ -38,6 +38,7 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
         result.truthLabel == TruthLabel.measured
             ? TruthLabel.prepared
             : result.truthLabel,
+        pageCount: _pageCount(result.value),
       );
     } on RuntimeError catch (error) {
       final refused = error.code == RuntimeErrorCode.capabilityUnavailable ||
@@ -61,6 +62,7 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
     CaptionDeliveryStatus status,
     TruthLabel truthLabel, {
     String? reason,
+    int pageCount = 1,
   }) =>
       CaptionDelivery(
         session: update.session,
@@ -70,5 +72,14 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
         truthLabel: truthLabel,
         adapterId: adapterId,
         reason: reason,
+        pageCount: pageCount,
       );
+
+  static final RegExp _pages = RegExp(r'^page:\d+/(\d+)$');
+
+  /// Parses `page:<shown>/<total>`; any other value counts as one page.
+  static int _pageCount(String value) {
+    final RegExpMatch? match = _pages.firstMatch(value);
+    return match == null ? 1 : int.parse(match.group(1)!);
+  }
 }

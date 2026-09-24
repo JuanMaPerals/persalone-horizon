@@ -78,8 +78,9 @@ final class ControlCommandEnvelope {
 
   /// Strict parser for an untrusted decoded JSON value.
   static ControlCommandEnvelope parse(Object? raw) {
-    if (raw is! Map)
+    if (raw is! Map) {
       throw const ControlEnvelopeError(ControlResultCode.malformed);
+    }
     final Map<Object?, Object?> json = raw;
     if (json['schemaVersion'] is int &&
         json['schemaVersion'] != controlSchemaVersion) {

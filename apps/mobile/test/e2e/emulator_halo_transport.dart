@@ -130,6 +130,8 @@ final class EmulatorHaloTransport implements HaloTransport {
       lower: reply['lower']! as int,
       sha256: reply['sha256']! as String,
       suspended: reply['suspended']! as bool,
+      outside: reply['outside']! as int,
+      bbox: (reply['bbox'] as List<Object?>?)?.cast<int>(),
     );
   }
 
@@ -164,6 +166,8 @@ final class EmulatorFrame {
     required this.lower,
     required this.sha256,
     required this.suspended,
+    this.outside = 0,
+    this.bbox,
   });
 
   final int lit;
@@ -171,6 +175,12 @@ final class EmulatorFrame {
   final int lower;
   final String sha256;
   final bool suspended;
+
+  /// Lit pixels outside the visible 256 px circle (clipped on hardware).
+  final int outside;
+
+  /// [x0, y0, x1, y1] of lit pixels, or null for a black frame.
+  final List<int>? bbox;
 }
 
 final class _Bridge {

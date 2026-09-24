@@ -5,9 +5,10 @@ import 'package:persalone_contracts/persalone_contracts.dart';
 import 'package:persalone_halo_adapter/persalone_halo_adapter.dart';
 import 'package:test/test.dart';
 
-const String _clearPrefix = 'frame.display.clear()';
-const String _powerPrefix = 'frame.display.power_save(false)';
-const String _textOpen = 'frame.display.text("';
+const String _pagePrefix = 'local d=frame.display ';
+const String _clearPrefix = 'd.clear()';
+const String _powerPrefix = 'd.power_save(false)';
+const String _textOpen = 'd.text("';
 
 /// Malicious or awkward caption payloads. None may alter Lua structure.
 const List<String> _payloads = <String>[
@@ -44,7 +45,7 @@ void main() {
           HaloBoundedDisplay.text('Hola, ¿qué tal?', powerOn: false).lua;
       expect(
         lua,
-        'frame.display.clear()frame.display.text("Hola, ¿qué tal?",24,168)'
+        'local d=frame.display d.clear()d.text("Hola, ¿qué tal?",24,168)'
         'print(1)',
       );
       expect(
@@ -57,9 +58,9 @@ void main() {
 
     test('prepends power_save(false) only when requested', () {
       expect(HaloBoundedDisplay.text('a', powerOn: true).lua,
-          startsWith('$_powerPrefix$_clearPrefix'));
+          startsWith('$_pagePrefix$_powerPrefix$_clearPrefix'));
       expect(HaloBoundedDisplay.text('a', powerOn: false).lua,
-          startsWith(_clearPrefix));
+          startsWith('$_pagePrefix$_clearPrefix'));
     });
 
     test('escapes quotes, backslash, newlines and control sequences', () {
@@ -157,6 +158,17 @@ void main() {
         'frame.display.clear()frame.display.text("a",24,168)print(1)os.exit()',
         'frame.display.power_save(true)frame.display.clear()frame.display.text("a",24,168)print(1)',
         'frame.display.clear()frame.display.text("a\\",24,168)print(1)',
+        'frame.display.clear()frame.display.text("a",24,168)print(1)',
+        'local d=frame.display d.clear()d.text("a"..os.exit().."",24,168)print(1)',
+        'local d=frame.display d.clear()d.text("a\n",24,168)print(1)',
+        'local d=frame.display d.clear()d.text("a",0,168)print(1)',
+        'local d=frame.display d.clear()d.text("a",24,168)print(1)os.exit()',
+        'local d=frame.display d.power_save(true)d.clear()d.text("a",24,168)print(1)',
+        'local d=os d.clear()d.text("a",24,168)print(1)',
+        'local d=frame.display d.clear()print(1)',
+        'local d=frame.display d.clear()d.text("a",9,9)d.text("b",9,9)'
+            'd.text("c",9,9)d.text("e",9,9)print(1)',
+        'local d=frame.display d.clear()d.text("a",9,9)d.clear()print(1)',
       ]) {
         expect(HaloBoundedDisplay.isAcceptable(forged), isFalse,
             reason: forged);
@@ -179,9 +191,12 @@ void main() {
       await fixture.executeAllowedLua(HaloLuaQuery.displayText, text: 'b');
 
       expect(first.truthLabel, TruthLabel.simulated);
-      expect(firstLua, startsWith(_powerPrefix));
-      expect(fixture.lastDisplayCommand!.lua, startsWith(_clearPrefix));
-      _expectStructurallySafe(_payloads.first, lua: firstLua);
+      expect(firstLua, startsWith('$_pagePrefix$_powerPrefix'));
+      expect(fixture.lastDisplayCommand!.lua,
+          startsWith('$_pagePrefix$_clearPrefix'));
+      expect(HaloBoundedDisplay.isAcceptable(firstLua), isTrue);
+      expect(_decode(_lex(firstLua).body),
+          HaloCaptionComposer.compose(_payloads.first).pages.first.first.text);
     });
   });
 }
@@ -202,8 +217,10 @@ void _expectStructurallySafe(String text, {bool powerOn = false, String? lua}) {
       lua ?? HaloBoundedDisplay.text(text, powerOn: powerOn).lua;
   expect(HaloBoundedDisplay.isAcceptable(command), isTrue, reason: command);
   final ({String prefix, String body, String rest}) lexed = _lex(command);
-  expect(<String>[_clearPrefix, '$_powerPrefix$_clearPrefix'],
-      contains(lexed.prefix));
+  expect(<String>[
+    '$_pagePrefix$_clearPrefix',
+    '$_pagePrefix$_powerPrefix$_clearPrefix'
+  ], contains(lexed.prefix));
   expect(lexed.rest, '",24,168)print(1)');
   expect(_decode(lexed.body), text);
 }
