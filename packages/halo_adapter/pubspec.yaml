@@ -15,6 +15,13 @@ dependencies:
       url: https://github.com/brilliantlabsAR/brilliant_sdk.git
       ref: 462dff4795cffb85248ab1d2f92d4f319adb03d3
       path: flutter/packages/brilliant_ble
+  brilliant_msg:
+    git:
+      url: https://github.com/brilliantlabsAR/brilliant_sdk.git
+      ref: 462dff4795cffb85248ab1d2f92d4f319adb03d3
+      path: flutter/packages/brilliant_msg
+  ffi: ^2.1.4
+  logging: ^1.2.0
 dev_dependencies:
   lints: ^5.1.1
   test: ^1.25.15
