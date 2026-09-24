@@ -126,6 +126,30 @@ void main() {
     await fresh.close();
   });
 
+  test('abruptly dropped clients free their slot; no lock-out at maxClients',
+      () async {
+    server = await startServer(maxClients: 2);
+    for (int i = 0; i < 6; i++) {
+      final Socket raw =
+          await Socket.connect(server.uri.host, server.uri.port);
+      raw.write('GET ${RuntimeEventServer.path} HTTP/1.1\r\n'
+          'Host: x\r\nAccept: text/event-stream\r\n\r\n');
+      final Completer<void> hello = Completer<void>();
+      final StreamSubscription<List<int>> sub = raw.listen((List<int> d) {
+        if (!hello.isCompleted && utf8.decode(d).contains('event: hello')) {
+          hello.complete();
+        }
+      });
+      await hello.future.timeout(const Duration(seconds: 5));
+      raw.destroy(); // no FIN handshake, no further reads
+      await sub.cancel();
+      await _eventually(() => server.clientCount == 0);
+    }
+    final _Sse fresh = await _Sse.connect(server.uri);
+    expect((await fresh.next('hello')).data['replay'], 'full');
+    await fresh.close();
+  });
+
   test('refuses to bind beyond loopback', () async {
     server = await startServer();
     await expectLater(

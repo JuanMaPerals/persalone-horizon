@@ -230,6 +230,52 @@ void main() {
     expect(restored.lower, greaterThan(0));
   });
 
+  test('reconnect soak: crash/reconnect cycles leave no orphan or temp file',
+      skip: _skip, () async {
+    final int cycles =
+        int.tryParse(Platform.environment['HORIZON_SOAK_CYCLES'] ?? '') ?? 25;
+    final Set<String> tempBefore = _tempEntries();
+    int turn = 0;
+    int failedWhileDown = 0;
+    for (int cycle = 1; cycle <= cycles; cycle++) {
+      await h.transport.crash();
+      h.translator.outputs[++turn] = 'DOWN $cycle';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+      if (h.deliveries.last.status == CaptionDeliveryStatus.failed) {
+        failedWhileDown++;
+      }
+      await h.device.reconnect();
+      h.translator.outputs[++turn] = 'BACK $cycle';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+      expect(h.deliveries.last.status, CaptionDeliveryStatus.delivered,
+          reason: 'cycle $cycle');
+      final EmulatorFrame frame = await h.transport.frame();
+      expect(frame.lit, greaterThan(0), reason: 'cycle $cycle caption visible');
+      expect(frame.outside, 0);
+    }
+    expect(h.runtime.state, HorizonTranslationRuntimeState.listening);
+    expect(failedWhileDown, cycles, reason: 'a dead HUD fails, never hangs');
+    final List<int> pids = h.transport.bridgePids;
+    expect(pids, hasLength(cycles + 1));
+    final List<int> alive = pids.where(_processAlive).toList();
+    expect(alive, <int>[pids.last], reason: 'only the current bridge runs');
+    await h.transport.disconnect();
+    expect(pids.where(_processAlive), isEmpty, reason: 'no orphan bridge');
+    final Set<String> leaked = _tempEntries().difference(tempBefore);
+    expect(leaked, isEmpty, reason: 'no temp files left in the private dir');
+    // ignore: avoid_print
+    print('SOAK_RECONNECT ${jsonEncode(<String, Object?>{
+          'cycles': cycles,
+          'bridgesStarted': pids.length,
+          'failedWhileDown': failedWhileDown,
+          'deliveredAfterReconnect': cycles,
+          'orphans': 0,
+          'tempFilesLeaked': leaked.length,
+        })}');
+  }, timeout: const Timeout(Duration(minutes: 10)));
+
   test('adversarial payloads stay text and never execute on the device',
       skip: _skip, () async {
     h.translator
@@ -264,6 +310,20 @@ void main() {
     );
   });
 }
+
+bool _processAlive(int pid) {
+  final File stat = File('/proc/$pid/stat');
+  if (!stat.existsSync()) return false;
+  // A zombie still has a /proc entry but is not running.
+  final String state = stat.readAsStringSync().split(') ').last.split(' ').first;
+  return state != 'Z' && state != 'X';
+}
+
+Set<String> _tempEntries() => Directory.systemTemp
+    .listSync()
+    .map((FileSystemEntity e) => e.path)
+    .where((String p) => !p.contains('flutter_tools') && !p.contains('dart_test'))
+    .toSet();
 
 /// Nearest-rank p50/p95, withheld below 5 and 20 samples (as the Console).
 Map<String, Object?> _stats(List<int> values) {

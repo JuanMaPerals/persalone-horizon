@@ -158,7 +158,8 @@ final class RuntimeEventServer {
     response
       ..headers.contentType =
           ContentType('text', 'event-stream', charset: 'utf-8')
-      ..bufferOutput = false;
+      ..headers.chunkedTransferEncoding = false
+      ..persistentConnection = false;
 
     final (String, int)? resume =
         _parseLastEventId(request.headers.value('last-event-id'));
@@ -171,7 +172,7 @@ final class RuntimeEventServer {
         .where(((int, String) entry) => !canResume || entry.$1 > resume.$2)
         .map(((int, String) entry) => entry.$2);
 
-    final _Client client = _Client(response, _clientQueueLimit, streamId);
+    final _Client client = _Client(_clientQueueLimit, streamId);
     _clients.add(client);
     unawaited(client.done.then((_) => _clients.remove(client)));
     client.enqueue(
@@ -187,6 +188,14 @@ final class RuntimeEventServer {
     );
     for (final String frame in frames) {
       client.enqueue(frame, live: false);
+    }
+    // Frames queued above keep their order; the body is written straight to
+    // the socket so a vanished peer is detected by EOF, not by a write that
+    // may never fail.
+    try {
+      client.attach(await response.detachSocket());
+    } on Object {
+      await client.close();
     }
   }
 
@@ -209,22 +218,43 @@ final class RuntimeEventServer {
 /// One subscriber. Live frames are bounded; a consumer that falls behind is
 /// sent `overflow` and disconnected so it resynchronises instead of reading
 /// stale state. Replay frames are bounded by the server's replay capacity.
+///
+/// The client owns its socket: the request has no body, so end of input (FIN
+/// or reset) means the peer is gone and its slot is released at once. Waiting
+/// for a failed write is not enough, because a flush to a vanished peer can
+/// stay pending forever and hold the slot.
 final class _Client {
-  _Client(this._response, this._limit, this._streamId) {
-    _response.done.then((_) => _finish(), onError: (Object _) => _finish());
-  }
+  _Client(this._limit, this._streamId);
 
-  final HttpResponse _response;
+  static const Duration _flushTimeout = Duration(seconds: 5);
+
   final int _limit;
   final String _streamId;
   final ListQueue<(String, bool)> _queue = ListQueue<(String, bool)>();
   final Completer<void> _done = Completer<void>();
+  Socket? _socket;
+  StreamSubscription<List<int>>? _input;
   int _liveQueued = 0;
   bool _pumping = false;
   bool _closeAfterDrain = false;
   bool _closed = false;
 
   Future<void> get done => _done.future;
+
+  void attach(Socket socket) {
+    if (_closed) {
+      socket.destroy();
+      return;
+    }
+    _socket = socket;
+    _input = socket.listen(
+      (List<int> _) {},
+      onDone: () => unawaited(close()),
+      onError: (Object _) => unawaited(close()),
+      cancelOnError: true,
+    );
+    unawaited(_pump());
+  }
 
   void enqueue(String frame, {bool live = true}) {
     if (_closed || _closeAfterDrain) return;
@@ -248,13 +278,14 @@ final class _Client {
   }
 
   Future<void> _pump() async {
-    if (_pumping) return;
+    final Socket? socket = _socket;
+    if (_pumping || socket == null) return;
     _pumping = true;
     try {
       while (_queue.isNotEmpty && !_closed) {
         final (String frame, bool live) = _queue.removeFirst();
-        _response.write(frame);
-        await _response.flush();
+        socket.add(utf8.encode(frame));
+        await socket.flush().timeout(_flushTimeout);
         if (live && _liveQueued > 0) _liveQueued--;
       }
       if (_closeAfterDrain) await close();
@@ -268,16 +299,9 @@ final class _Client {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
-    try {
-      await _response.close();
-    } on Object {
-      // The peer is already gone.
-    }
-    _finish();
-  }
-
-  void _finish() {
-    _closed = true;
+    _queue.clear();
+    await _input?.cancel();
+    _socket?.destroy();
     if (!_done.isCompleted) _done.complete();
   }
 }

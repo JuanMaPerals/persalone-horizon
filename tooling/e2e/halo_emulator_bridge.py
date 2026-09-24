@@ -33,7 +33,11 @@ def _reply(payload):
 
 def main():
     prints = []
-    emu = HaloEmulator(print_handler=prints.append)
+    # The host owns the sandbox directory (argv[1]) and removes it after this
+    # process exits, even when it is SIGKILLed; an emulator-owned temp dir
+    # would be left behind on every crash.
+    sandbox = sys.argv[1] if len(sys.argv) > 1 else None
+    emu = HaloEmulator(print_handler=prints.append, sandbox_dir=sandbox)
     emu.connect()
     # Halo boots with its display in power-save mode; mirror that so the host
     # must wake it explicitly.

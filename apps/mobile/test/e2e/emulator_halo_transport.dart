@@ -20,6 +20,9 @@ final class EmulatorHaloTransport implements HaloTransport {
   final List<String> sentDisplayCommands = <String>[];
   int bridgeStarts = 0;
 
+  /// PIDs of every bridge process started, to prove none is left behind.
+  final List<int> bridgePids = <int>[];
+
   final StreamController<HaloTransportDiscovery> _discoveries =
       StreamController<HaloTransportDiscovery>.broadcast();
   final StreamController<bool> _links = StreamController<bool>.broadcast();
@@ -51,6 +54,7 @@ final class EmulatorHaloTransport implements HaloTransport {
     await _bridge?.kill();
     _bridge = await _Bridge.start(python, bridgeScript);
     bridgeStarts++;
+    bridgePids.add(_bridge!.pid);
     _links.add(true);
     return const HaloTransportConnection(
       reconnectId: 'halo-emulator',
@@ -188,12 +192,21 @@ final class _Bridge {
 
   final Process _process;
   final String version;
+
+  int get pid => _process.pid;
   final Queue<Completer<Map<String, Object?>>> _pending =
       Queue<Completer<Map<String, Object?>>>();
   bool exited = false;
 
   static Future<_Bridge> start(String python, String script) async {
-    final Process process = await Process.start(python, <String>[script]);
+    final Directory sandbox =
+        Directory.systemTemp.createTempSync('halo_emu_bridge_');
+    final Process process =
+        await Process.start(python, <String>[script, sandbox.path]);
+    // The bridge may be SIGKILLed; the sandbox is removed by its owner here.
+    unawaited(process.exitCode.then((_) {
+      if (sandbox.existsSync()) sandbox.deleteSync(recursive: true);
+    }));
     final Completer<_Bridge> ready = Completer<_Bridge>();
     _Bridge? bridge;
     process.stdout
@@ -252,6 +265,8 @@ final class _Bridge {
     }
     _process.kill(ProcessSignal.sigkill);
     await _process.exitCode;
+    // Let the exit handler remove the sandbox before callers inspect disk.
+    await Future<void>.delayed(Duration.zero);
     exited = true;
   }
 }
