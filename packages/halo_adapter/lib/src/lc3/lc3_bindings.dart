@@ -6,38 +6,38 @@ import 'dart:io' show Platform;
 // int lc3_encoder_size(int dt_us, int sr_hz);
 // C 'unsigned' return type is mapped to Dart 'int' / FFI 'Int32'.
 // This is safe as the size will be positive.
-typedef _Lc3EncoderSizeNative = Int32 Function(Int32 dt_us, Int32 sr_hz);
-typedef _Lc3EncoderSizeDart = int Function(int dt_us, int sr_hz);
+typedef Lc3EncoderSizeNative = Int32 Function(Int32 dt_us, Int32 sr_hz);
+typedef Lc3EncoderSizeDart = int Function(int dt_us, int sr_hz);
 
 // lc3_encoder_t lc3_setup_encoder(int dt_us, int sr_hz, int sr_pcm_hz, void *mem);
 // lc3_encoder_t is a typedef for void*
-typedef _Lc3SetupEncoderNative = Pointer<Void> Function(
+typedef Lc3SetupEncoderNative = Pointer<Void> Function(
     Int32 dt_us, Int32 sr_hz, Int32 sr_pcm_hz, Pointer<Void> mem);
-typedef _Lc3SetupEncoderDart = Pointer<Void> Function(
+typedef Lc3SetupEncoderDart = Pointer<Void> Function(
     int dt_us, int sr_hz, int sr_pcm_hz, Pointer<Void> mem);
 
 // int lc3_encode(lc3_encoder_t enc, enum lc3_pcm_format pcm_fmt,
 //                const void *pcm, int stride, int nbytes, void *out);
-typedef _Lc3EncodeNative = Int32 Function(Pointer<Void> enc, Int32 pcm_fmt,
+typedef Lc3EncodeNative = Int32 Function(Pointer<Void> enc, Int32 pcm_fmt,
     Pointer<Void> pcm, Int32 stride, Int32 nbytes_out, Pointer<Void> out);
-typedef _Lc3EncodeDart = int Function(Pointer<Void> enc, int pcm_fmt,
+typedef Lc3EncodeDart = int Function(Pointer<Void> enc, int pcm_fmt,
     Pointer<Void> pcm, int stride, int nbytes_out, Pointer<Void> out);
 
 // int lc3_decoder_size(int dt_us, int sr_hz);
-typedef _Lc3DecoderSizeNative = Int32 Function(Int32 dt_us, Int32 sr_hz);
-typedef _Lc3DecoderSizeDart = int Function(int dt_us, int sr_hz);
+typedef Lc3DecoderSizeNative = Int32 Function(Int32 dt_us, Int32 sr_hz);
+typedef Lc3DecoderSizeDart = int Function(int dt_us, int sr_hz);
 
 // lc3_decoder_t lc3_setup_decoder(int dt_us, int sr_hz, int sr_pcm_hz, void *mem);
-typedef _Lc3SetupDecoderNative = Pointer<Void> Function(
+typedef Lc3SetupDecoderNative = Pointer<Void> Function(
     Int32 dt_us, Int32 sr_hz, Int32 sr_pcm_hz, Pointer<Void> mem);
-typedef _Lc3SetupDecoderDart = Pointer<Void> Function(
+typedef Lc3SetupDecoderDart = Pointer<Void> Function(
     int dt_us, int sr_hz, int sr_pcm_hz, Pointer<Void> mem);
 
 // int lc3_decode(lc3_decoder_t dec, const void *in, int nbytes,
 //                enum lc3_pcm_format fmt, void *pcm, int stride);
-typedef _Lc3DecodeNative = Int32 Function(Pointer<Void> dec, Pointer<Void> inBuf,
+typedef Lc3DecodeNative = Int32 Function(Pointer<Void> dec, Pointer<Void> inBuf,
     Int32 nbytes, Int32 pcm_fmt, Pointer<Void> pcm, Int32 stride);
-typedef _Lc3DecodeDart = int Function(Pointer<Void> dec, Pointer<Void> inBuf,
+typedef Lc3DecodeDart = int Function(Pointer<Void> dec, Pointer<Void> inBuf,
     int nbytes, int pcm_fmt, Pointer<Void> pcm, int stride);
 
 // --- Constants ---
@@ -55,40 +55,40 @@ const int LC3_PCM_FORMAT_S16 = 0;
 class Lc3Bindings {
   late final DynamicLibrary _dylib;
 
-  late final _Lc3EncoderSizeDart lc3_encoder_size;
-  late final _Lc3SetupEncoderDart lc3_setup_encoder;
-  late final _Lc3EncodeDart lc3_encode;
-  late final _Lc3DecoderSizeDart lc3_decoder_size;
-  late final _Lc3SetupDecoderDart lc3_setup_decoder;
-  late final _Lc3DecodeDart lc3_decode;
+  late final Lc3EncoderSizeDart lc3_encoder_size;
+  late final Lc3SetupEncoderDart lc3_setup_encoder;
+  late final Lc3EncodeDart lc3_encode;
+  late final Lc3DecoderSizeDart lc3_decoder_size;
+  late final Lc3SetupDecoderDart lc3_setup_decoder;
+  late final Lc3DecodeDart lc3_decode;
 
   Lc3Bindings() {
     _dylib = _loadDynamicLibrary();
 
     // Look up the functions
     lc3_encoder_size = _dylib
-        .lookup<NativeFunction<_Lc3EncoderSizeNative>>('lc3_encoder_size')
-        .asFunction<_Lc3EncoderSizeDart>();
+        .lookup<NativeFunction<Lc3EncoderSizeNative>>('lc3_encoder_size')
+        .asFunction<Lc3EncoderSizeDart>();
 
     lc3_setup_encoder = _dylib
-        .lookup<NativeFunction<_Lc3SetupEncoderNative>>('lc3_setup_encoder')
-        .asFunction<_Lc3SetupEncoderDart>();
+        .lookup<NativeFunction<Lc3SetupEncoderNative>>('lc3_setup_encoder')
+        .asFunction<Lc3SetupEncoderDart>();
 
     lc3_encode = _dylib
-        .lookup<NativeFunction<_Lc3EncodeNative>>('lc3_encode')
-        .asFunction<_Lc3EncodeDart>();
+        .lookup<NativeFunction<Lc3EncodeNative>>('lc3_encode')
+        .asFunction<Lc3EncodeDart>();
 
     lc3_decoder_size = _dylib
-        .lookup<NativeFunction<_Lc3DecoderSizeNative>>('lc3_decoder_size')
-        .asFunction<_Lc3DecoderSizeDart>();
+        .lookup<NativeFunction<Lc3DecoderSizeNative>>('lc3_decoder_size')
+        .asFunction<Lc3DecoderSizeDart>();
 
     lc3_setup_decoder = _dylib
-        .lookup<NativeFunction<_Lc3SetupDecoderNative>>('lc3_setup_decoder')
-        .asFunction<_Lc3SetupDecoderDart>();
+        .lookup<NativeFunction<Lc3SetupDecoderNative>>('lc3_setup_decoder')
+        .asFunction<Lc3SetupDecoderDart>();
 
     lc3_decode = _dylib
-        .lookup<NativeFunction<_Lc3DecodeNative>>('lc3_decode')
-        .asFunction<_Lc3DecodeDart>();
+        .lookup<NativeFunction<Lc3DecodeNative>>('lc3_decode')
+        .asFunction<Lc3DecodeDart>();
   }
 
   DynamicLibrary _loadDynamicLibrary() {
