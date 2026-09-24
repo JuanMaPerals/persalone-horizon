@@ -19,7 +19,7 @@ class Lc3PacketPacer {
   final int maxBufferDelayFrames;
 
   // Function to call to send data
-  final Function(Uint8List) sendAudio;
+  final Future<void> Function(Uint8List) sendAudio;
 
   /// Creates an LC3 packet pacer that sends packets at regular intervals.
   /// [intervalMs] is the target interval between packets (e.g. 10ms).
