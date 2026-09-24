@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:persalone_contracts/persalone_contracts.dart';
 
+import 'halo_bounded_display.dart';
 import 'halo_transport.dart';
 
 /// Product-owned Halo adapter. A [ready] state is emitted only after the
@@ -46,6 +47,8 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
   DeviceConnectionState _state = DeviceConnectionState.idle;
   int? _maxUserDataPayloadBytes;
   bool _disposed = false;
+  bool _displayPoweredOn = false;
+  int _linkGeneration = 0;
 
   @override
   String get adapterId => 'halo-device-adapter';
@@ -302,10 +305,7 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
   }) async {
     _ensureReady();
     if (query == HaloLuaQuery.displayText) {
-      throw const RuntimeError(
-        RuntimeErrorCode.capabilityUnavailable,
-        'Display text is blocked until a bounded command builder is reviewed.',
-      );
+      return _displayText(text);
     }
     final String command = switch (query) {
       HaloLuaQuery.identity => 'print(frame.HARDWARE_VERSION)',
@@ -335,6 +335,43 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
       );
       rethrow;
     }
+  }
+
+  Future<HaloLuaResult> _displayText(String? text) async {
+    if (text == null) {
+      throw const RuntimeError(
+        RuntimeErrorCode.invalidContract,
+        'Display text requires caption text.',
+      );
+    }
+    final HaloDisplayCommand command =
+        HaloBoundedDisplay.text(text, powerOn: !_displayPoweredOn);
+    final int generation = _linkGeneration;
+    try {
+      await _transport.executeDisplayCommand(command);
+    } catch (error) {
+      // A display failure is reported to the caller without tearing down the
+      // device session; caption text never enters the diagnostic detail.
+      throw const RuntimeError(
+        RuntimeErrorCode.protocolRejected,
+        'Halo display command was not acknowledged.',
+        retryable: true,
+      );
+    }
+    if (generation != _linkGeneration ||
+        _state != DeviceConnectionState.ready) {
+      throw const RuntimeError(
+        RuntimeErrorCode.deviceNotReady,
+        'Halo link changed before the display command completed.',
+      );
+    }
+    _displayPoweredOn = true;
+    return HaloLuaResult(
+      query: HaloLuaQuery.displayText,
+      value: '1',
+      sourceRevision: _sourceRevision,
+      truthLabel: TruthLabel.prepared,
+    );
   }
 
   @override
@@ -449,6 +486,12 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
     DeviceConnectionState next, {
     String? failureReason,
   }) {
+    if (next != DeviceConnectionState.ready) {
+      // Halo boots its display in power-save mode; any link change means the
+      // next caption must wake it again, and in-flight results are stale.
+      _displayPoweredOn = false;
+      _linkGeneration++;
+    }
     _state = next;
     _snapshots.add(
       DeviceAdapterSnapshot(

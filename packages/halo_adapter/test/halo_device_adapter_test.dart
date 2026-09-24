@@ -105,6 +105,114 @@ void main() {
       );
     });
   });
+
+  group('HaloDeviceAdapter bounded displayText', () {
+    Future<(HaloDeviceAdapter, _ControlledTransport)> connected() async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter =
+          HaloDeviceAdapter(transport: transport, nowMicros: () => 200);
+      addTearDown(adapter.dispose);
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+      return (adapter, transport);
+    }
+
+    test('wakes the display only on the first caption after each connection',
+        () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+
+      final HaloLuaResult result = await adapter
+          .executeAllowedLua(HaloLuaQuery.displayText, text: 'uno');
+      await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'dos');
+      await adapter.disconnect();
+      await adapter.reconnect();
+      await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'tres');
+
+      expect(result.truthLabel, TruthLabel.prepared);
+      expect(transport.displayCommands.map((String lua) =>
+          lua.startsWith('frame.display.power_save(false)')), <bool>[
+        true,
+        false,
+        true,
+      ]);
+      expect(transport.displayCommands.every(HaloBoundedDisplay.isAcceptable),
+          isTrue);
+      expect(transport.executed, isEmpty);
+    });
+
+    test('rejects oversized or missing text before anything is sent',
+        () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+
+      for (final String? text in <String?>[
+        'a' * (HaloBoundedDisplay.maxTextBytes + 1),
+        'a\uD800',
+        null,
+      ]) {
+        await expectLater(
+          adapter.executeAllowedLua(HaloLuaQuery.displayText, text: text),
+          throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code,
+              'code', RuntimeErrorCode.invalidContract)),
+        );
+      }
+      expect(transport.displayCommands, isEmpty);
+    });
+
+    test('reports a timeout as retryable without tearing down the link',
+        () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+      transport.displayError = TimeoutException('no ack');
+
+      await expectLater(
+        adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'hola'),
+        throwsA(isA<RuntimeError>()
+            .having((RuntimeError e) => e.code, 'code',
+                RuntimeErrorCode.protocolRejected)
+            .having((RuntimeError e) => e.retryable, 'retryable', isTrue)),
+      );
+
+      transport.displayError = null;
+      await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'hola');
+      expect(transport.displayCommands.single,
+          startsWith('frame.display.power_save(false)'));
+      expect((await adapter.readBattery()).levelPercent, 73);
+    });
+
+    test('discards a display result when the link changes mid-flight',
+        () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+      transport.displayGate = Completer<void>();
+
+      final Future<HaloLuaResult> pending =
+          adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'tarde');
+      await adapter.disconnect();
+      transport.displayGate!.complete();
+
+      await expectLater(
+        pending,
+        throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code, 'code',
+            RuntimeErrorCode.deviceNotReady)),
+      );
+    });
+
+    test('clear stays a constant allow-listed command without text', () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+
+      await adapter.executeAllowedLua(HaloLuaQuery.clearDisplay);
+      await expectLater(
+        adapter.executeAllowedLua(HaloLuaQuery.clearDisplay, text: 'x'),
+        throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code, 'code',
+            RuntimeErrorCode.policyDenied)),
+      );
+      expect(transport.executed, <String>['frame.display.clear()print(1)']);
+    });
+  });
 }
 
 final class _ControlledTransport implements HaloTransport {
@@ -164,8 +272,11 @@ final class _ControlledTransport implements HaloTransport {
     return const HaloTransportBattery(levelPercent: 73, isCharging: false);
   }
 
+  final List<String> executed = <String>[];
+
   @override
   Future<String> executeReadOnlyLua(String command) async {
+    executed.add(command);
     return switch (command) {
       'print(frame.get_eui())' => '0011223344556677',
       'print(frame.HARDWARE_VERSION)' => 'halo',
@@ -174,6 +285,20 @@ final class _ControlledTransport implements HaloTransport {
       'frame.display.clear()print(1)' => '1',
       _ => throw StateError('Unexpected command.'),
     };
+  }
+
+  final List<String> displayCommands = <String>[];
+  Completer<void>? displayGate;
+  Object? displayError;
+
+  @override
+  Future<void> executeDisplayCommand(HaloDisplayCommand command) async {
+    await displayGate?.future;
+    final Object? error = displayError;
+    if (error != null) {
+      throw error;
+    }
+    displayCommands.add(command.lua);
   }
 
   @override

@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'halo_bounded_display.dart';
+
 /// Transport-level discovery result. It intentionally does not expose a raw
 /// device address outside the adapter implementation.
 final class HaloTransportDiscovery {
@@ -56,6 +58,11 @@ abstract interface class HaloTransport {
   Future<void> disconnect();
   Future<HaloTransportBattery> readBattery();
   Future<String> executeReadOnlyLua(String command);
+
+  /// Sends a command built by [HaloBoundedDisplay]; implementations must
+  /// re-check [HaloBoundedDisplay.isAcceptable], never log the payload, and
+  /// bound the wait with a timeout.
+  Future<void> executeDisplayCommand(HaloDisplayCommand command);
   Future<void> sendUserData(Uint8List payload);
   Future<void> dispose();
 }
