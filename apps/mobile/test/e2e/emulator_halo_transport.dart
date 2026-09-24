@@ -73,11 +73,20 @@ final class EmulatorHaloTransport implements HaloTransport {
     _links.add(false);
   }
 
+  /// Fault injection for cleanup tests: the next clears fail as a display
+  /// that rejects the command would.
+  bool failClear = false;
+  int clears = 0;
+
   @override
   Future<String> executeReadOnlyLua(String command) async {
     if (command != HaloBoundedDisplay.clear.lua) {
       throw StateError('Only the constant clear is routed to the emulator.');
     }
+    if (failClear) {
+      throw StateError('simulated display clear failure');
+    }
+    clears++;
     final List<String> prints = await _exec(command);
     return prints.join('\n');
   }
