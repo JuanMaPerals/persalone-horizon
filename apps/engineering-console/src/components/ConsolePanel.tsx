@@ -2,6 +2,7 @@ import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node } from '
 import { type ReactElement, useEffect, useMemo } from 'react';
 import { isSensitiveAttribute, type HaloTraceEvent } from '../types/trace';
 import { useTraceSnapshot, useTraceStore } from '../store/TraceStoreContext';
+import { CommunityLab } from './CommunityLab';
 
 export type ConsolePanelId =
   | 'execution-graph'
@@ -11,7 +12,8 @@ export type ConsolePanelId =
   | 'ble-monitor'
   | 'translation'
   | 'memory-rag'
-  | 'metrics';
+  | 'metrics'
+  | 'community-lab';
 
 interface ConsolePanelProps {
   readonly panelId: ConsolePanelId;
@@ -25,6 +27,9 @@ const domainColor: Record<HaloTraceEvent['domain'], string> = {
   memory: '#f59e0b',
   policy: '#fb7185',
   agent: '#38bdf8',
+  vision: '#34d399',
+  input: '#facc15',
+  display: '#a78bfa',
 };
 
 function EvidencePill({ value }: { readonly value: HaloTraceEvent['evidence'] }): ReactElement {
@@ -258,5 +263,6 @@ export function ConsolePanel({ panelId }: ConsolePanelProps): ReactElement {
     case 'translation': return <TranslationInspector />;
     case 'memory-rag': return <MemoryRag />;
     case 'metrics': return <Metrics />;
+    case 'community-lab': return <CommunityLab />;
   }
 }
