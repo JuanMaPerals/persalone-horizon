@@ -38,6 +38,39 @@ jobs:
       - name: Repository preflight
         run: bash tooling/preflight.sh --all
 
+
+  console:
+    name: console
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/engineering-console/pnpm-lock.yaml
+      - name: Install
+        working-directory: apps/engineering-console
+        run: pnpm install --frozen-lockfile
+      - name: Test
+        working-directory: apps/engineering-console
+        run: pnpm test
+      - name: Type check
+        working-directory: apps/engineering-console
+        run: pnpm lint
+      - name: Build
+        working-directory: apps/engineering-console
+        run: pnpm build
+
   secret-scan:
     name: secret-scan
     runs-on: ubuntu-latest
