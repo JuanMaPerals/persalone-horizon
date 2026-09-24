@@ -12,7 +12,7 @@ final class OfficialBrilliantHaloTransport implements HaloTransport {
   OfficialBrilliantHaloTransport();
 
   static const String brilliantSdkRevision =
-      '9a4cacf7d395195fad338bdb971b2c1ebf484180';
+      '462dff4795cffb85248ab1d2f92d4f319adb03d3';
 
   final StreamController<HaloTransportDiscovery> _discoveries =
       StreamController<HaloTransportDiscovery>.broadcast();
