@@ -20,6 +20,7 @@ const panels: readonly PanelDefinition[] = [
   { id: 'inspector', title: 'Inspector', group: 'Inspect' },
   { id: 'translation', title: 'Translation Inspector', group: 'Inspect' },
   { id: 'memory-rag', title: 'Memory / RAG', group: 'Inspect' },
+  { id: 'community-lab', title: 'Community Lab', group: 'Inspect' },
   { id: 'ble-monitor', title: 'BLE Monitor', group: 'Systems' },
   { id: 'metrics', title: 'Metrics & Latency', group: 'Systems' },
 ];
@@ -45,7 +46,18 @@ function CommandPalette({ api, onClose }: { readonly api: DockviewApi | null; re
   if (!api) return null;
   const results = panels.filter((panel) => panel.title.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
   const activate = (id: ConsolePanelId) => {
-    api.getPanel(id)?.api.setActive();
+    const existing = api.getPanel(id);
+    if (existing) {
+      existing.api.setActive();
+    } else {
+      const definition = panels.find((panel) => panel.id === id);
+      api.addPanel({
+        id,
+        component: 'panel',
+        title: definition?.title ?? id,
+        params: { panelId: id },
+      }).api.setActive();
+    }
     onClose();
   };
   return <div className="command-backdrop" role="presentation" onMouseDown={onClose}><section className="command-palette" role="dialog" aria-modal="true" aria-label="Command palette" onMouseDown={(event) => event.stopPropagation()}><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Type a command or panel name…" /><div className="command-results">{results.map((panel) => <button type="button" key={panel.id} onClick={() => activate(panel.id)}><span>{panel.title}</span><small>{panel.group}</small></button>)}</div><footer><span>Navigate workspace</span><kbd>Esc</kbd> to close</footer></section></div>;
@@ -60,6 +72,7 @@ function buildDefaultLayout(api: DockviewApi): void {
   add('ble-monitor', 'BLE Monitor', { referencePanel: 'inspector', direction: 'below' });
   add('translation', 'Translation Inspector', { referencePanel: 'ble-monitor', direction: 'below' });
   add('memory-rag', 'Memory / RAG', { referencePanel: 'translation', direction: 'below' });
+  add('community-lab', 'Community Lab', { referencePanel: 'memory-rag', direction: 'below' });
   add('metrics', 'Metrics & Latency', { referencePanel: 'logs', direction: 'right' });
 }
 

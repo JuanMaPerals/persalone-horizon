@@ -19,3 +19,11 @@ The initial workspace contains a dockable execution graph, timeline with replay,
 `HaloTraceEvent` in `src/types/trace.ts` is the normalized console contract. A future adapter may append real or emulated runtime events only after it removes sensitive payload fields, labels evidence truthfully, preserves session/trace/span correlation, and supplies monotonic event ordering. The console will not infer `MEASURED` from a transport acknowledgement, a UI transition, an SDK response, or a mock value.
 
 The next integration increment is an explicit adapter from the existing Dart companion’s redacted session, capability, audio-metadata, and diagnostic events to `HaloTraceEvent`; it must be tested with both a deterministic fixture and a physical evidence gate.
+
+## Community Lab
+
+The Community Lab extends the existing engineering workstation instead of creating a second product. It provides a browser-only 256×256 circular display simulator, deterministic interaction scenarios, tap/double-tap/long-press injection, HUD brightness/font/color controls, and a versioned local contribution format.
+
+Community contribution schema: `persalone.halo.community-scenario/v1`.
+
+Imported scenarios are bounded to 64 KB, rendered as text rather than HTML, stay local to the browser, and are rejected if they claim anything other than `SIMULATED` evidence. Exported JSON can be reviewed and integrated through the normal repository workflow. Physical Halo validation remains a separate evidence gate.

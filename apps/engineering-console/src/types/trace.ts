@@ -7,7 +7,10 @@ export type TraceDomain =
   | 'translation'
   | 'memory'
   | 'policy'
-  | 'agent';
+  | 'agent'
+  | 'vision'
+  | 'input'
+  | 'display';
 
 export type TraceSeverity = 'debug' | 'info' | 'warn' | 'error';
 
@@ -26,6 +29,10 @@ export type TraceKind =
   | 'playback.completed'
   | 'memory.lookup'
   | 'policy.redaction'
+  | 'agent.response'
+  | 'vision.frame.captured'
+  | 'input.gesture'
+  | 'display.page.changed'
   | 'replay.position';
 
 export interface TraceSpan {
