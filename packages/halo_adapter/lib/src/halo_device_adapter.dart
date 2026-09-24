@@ -53,6 +53,9 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
   @override
   String get adapterId => 'halo-device-adapter';
 
+  /// Execution path of the underlying transport (BLE, emulator or test double).
+  ExecutionEnvironment get environment => _transport.environment;
+
   @override
   String get sourceRevision => _sourceRevision;
 

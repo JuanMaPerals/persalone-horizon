@@ -5,15 +5,17 @@ import 'halo_device_adapter.dart';
 /// Routes runtime captions to a Halo device port through the existing
 /// allow-listed [HaloLuaQuery.displayText] query; it adds no Lua of its own.
 ///
-/// Only [HaloDeviceAdapter] is reported as [ExecutionEnvironment.haloReal]; any
-/// other port (fixture, fake) is reported as [ExecutionEnvironment.simulated].
+/// A [HaloDeviceAdapter] reports the environment declared by its transport, so
+/// an emulator-backed adapter is EMULATED, never HALO_REAL. Any other port
+/// (fixture, fake) is reported as [ExecutionEnvironment.simulated].
 /// A command acknowledgement is capped at [TruthLabel.prepared]: it proves the
 /// device accepted the command, not that a person saw the caption.
 final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
   HaloCaptionOutputAdapter(this._device)
-      : environment = _device is HaloDeviceAdapter
-            ? ExecutionEnvironment.haloReal
-            : ExecutionEnvironment.simulated;
+      : environment = switch (_device) {
+          final HaloDeviceAdapter device => device.environment,
+          _ => ExecutionEnvironment.simulated,
+        };
 
   final DeviceAdapterPort _device;
 

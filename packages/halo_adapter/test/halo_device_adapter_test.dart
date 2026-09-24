@@ -217,9 +217,22 @@ void main() {
   group('HaloCaptionOutputAdapter', () {
     const String injection = "]]) frame.display.clear() os.execute('x') --";
 
+    test('only the official BLE transport declares HALO_REAL', () {
+      expect(OfficialBrilliantHaloTransport().environment,
+          ExecutionEnvironment.haloReal);
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: _ControlledTransport(),
+        nowMicros: () => 1,
+      );
+      addTearDown(adapter.dispose);
+      expect(adapter.environment, ExecutionEnvironment.simulated);
+      expect(HaloCaptionOutputAdapter(adapter).environment,
+          ExecutionEnvironment.simulated);
+    });
+
     test(
-        'reports real Halo captions as HALO_REAL but BLOCKED and never sends '
-        'caption text to the transport', () async {
+        'delivers device captions with the transport environment and never '
+        'sends caption text outside the bounded command', () async {
       final _ControlledTransport transport = _ControlledTransport();
       final HaloDeviceAdapter adapter = HaloDeviceAdapter(
         transport: transport,
@@ -234,8 +247,8 @@ void main() {
 
       final CaptionDelivery delivery = await captions.show(_caption(injection));
 
-      expect(captions.environment, ExecutionEnvironment.haloReal);
-      expect(delivery.environment, ExecutionEnvironment.haloReal);
+      expect(captions.environment, ExecutionEnvironment.simulated);
+      expect(delivery.environment, ExecutionEnvironment.simulated);
       expect(delivery.status, CaptionDeliveryStatus.delivered);
       expect(delivery.truthLabel, TruthLabel.prepared);
       expect(delivery.reason, isNull);
@@ -287,6 +300,9 @@ CaptionUpdate _caption(String text) => CaptionUpdate(
     );
 
 final class _ControlledTransport implements HaloTransport {
+  @override
+  ExecutionEnvironment get environment => ExecutionEnvironment.simulated;
+
   final StreamController<HaloTransportDiscovery> _discoveries =
       StreamController<HaloTransportDiscovery>.broadcast();
   final StreamController<bool> _links = StreamController<bool>.broadcast();
