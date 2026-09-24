@@ -2,6 +2,7 @@ import { DockviewReact, type DockviewApi, type DockviewReadyEvent, type IDockvie
 import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { ConsolePanel, type ConsolePanelId } from './components/ConsolePanel';
 import { useTraceSnapshot, useTraceStore } from './store/TraceStoreContext';
+import { activeTraceSource } from './types/trace';
 
 import 'dockview-react/dist/styles/dockview.css';
 
@@ -37,7 +38,7 @@ function ConsoleHeader({ onPalette }: { readonly onPalette: () => void }): React
     <div className="session-picker"><label htmlFor="session-select">Session</label><select id="session-select" value={snapshot.activeSessionId ?? ''} onChange={(event) => store.selectSession(event.target.value)}>{snapshot.sessions.map((session) => <option key={session.id} value={session.id}>{session.label}</option>)}</select></div>
     <label className="global-search"><span>Search</span><input value={snapshot.filters.text} onChange={(event) => store.setSearch(event.target.value)} placeholder="Events, domains, tags…" /></label>
     <button type="button" className="command-trigger" onClick={onPalette}><kbd>⌘</kbd><kbd>K</kbd> Command palette</button>
-    <div className="truth-banner"><span>TRACE SOURCE</span><strong>EMULATED</strong></div>
+    <div className="truth-banner"><span>TRACE SOURCE</span><strong>{activeTraceSource(snapshot.sessions, snapshot.activeSessionId)}</strong></div>
   </header>;
 }
 

@@ -77,7 +77,17 @@ export interface TraceSession {
   readonly label: string;
   readonly startedAt: string;
   readonly evidence: EvidenceState;
-  readonly source: 'EMULATED' | 'DEVICE';
+  readonly source: TraceSource;
+}
+
+/** Execution path that produced a trace; a hand-written fixture is SIMULATED. */
+export type TraceSource = 'SIMULATED' | 'EMULATED' | 'DEVICE';
+
+export function activeTraceSource(
+  sessions: readonly TraceSession[],
+  activeSessionId: string | null | undefined,
+): TraceSource | 'UNKNOWN' {
+  return sessions.find((session) => session.id === activeSessionId)?.source ?? 'UNKNOWN';
 }
 
 export interface TraceFilters {

@@ -225,7 +225,7 @@ function BleMonitor(): ReactElement {
   useTraceSnapshot();
   const events = store.visibleEvents().filter((event) => event.domain === 'ble');
   const connected = events.some((event) => event.kind === 'ble.connected');
-  return <section className="monitor-panel"><div className="monitor-status"><span className={connected ? 'status-led is-emulated' : 'status-led'} />{connected ? 'Emulated fixture connected' : 'No device connection'}</div><dl className="metric-list"><div><dt>Transport owner</dt><dd>ScriptedHaloFixture</dd></div><div><dt>Physical evidence</dt><dd><EvidencePill value="BLOCKED" /></dd></div><div><dt>Observed BLE events</dt><dd>{events.length}</dd></div></dl><p>BLE trace is a deterministic fixture. It is not a hardware connectivity claim.</p></section>;
+  return <section className="monitor-panel"><div className="monitor-status"><span className={connected ? 'status-led is-emulated' : 'status-led'} />{connected ? 'Simulated fixture connected' : 'No device connection'}</div><dl className="metric-list"><div><dt>Transport owner</dt><dd>ScriptedHaloFixture</dd></div><div><dt>Physical evidence</dt><dd><EvidencePill value="BLOCKED" /></dd></div><div><dt>Observed BLE events</dt><dd>{events.length}</dd></div></dl><p>BLE trace is a deterministic fixture. It is not a hardware connectivity claim.</p></section>;
 }
 
 function TranslationInspector(): ReactElement {
