@@ -218,6 +218,63 @@ void main() {
     });
   });
 
+  group('HaloDeviceAdapter caption pages', () {
+    const String long =
+        'This caption is deliberately long so that it cannot fit on a single '
+        'page of the round display and must continue on a second ordered page';
+
+    Future<(HaloDeviceAdapter, _ControlledTransport)> connected() async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter =
+          HaloDeviceAdapter(transport: transport, nowMicros: () => 300);
+      addTearDown(adapter.dispose);
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+      return (adapter, transport);
+    }
+
+    test('shows the requested page through the bounded command path',
+        () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+      final HaloCaptionComposition c = HaloCaptionComposer.compose(long);
+      expect(c.pageCount, 2);
+
+      final HaloLuaResult first = await adapter.displayTextPage(long, 0);
+      final HaloLuaResult second = await adapter.displayTextPage(long, 1);
+
+      expect(first.value, 'page:1/2');
+      expect(second.value, 'page:2/2');
+      expect(transport.displayCommands, <String>[
+        c.command(0, powerOn: true).lua,
+        c.command(1, powerOn: false).lua,
+      ]);
+      expect(transport.displayCommands.every(HaloBoundedDisplay.isAcceptable),
+          isTrue);
+    });
+
+    test('a page outside the composition is refused before sending', () async {
+      final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
+          await connected();
+      for (final int page in <int>[-1, 2, 99]) {
+        await expectLater(
+          adapter.displayTextPage(long, page),
+          throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code, 'code',
+              RuntimeErrorCode.invalidContract)),
+        );
+      }
+      expect(transport.displayCommands, isEmpty);
+    });
+
+    test('displayText keeps showing page 1', () async {
+      final (HaloDeviceAdapter adapter, _) = await connected();
+      final HaloLuaResult r =
+          await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: long);
+      expect(r.value, 'page:1/2');
+    });
+  });
+
   group('HaloCaptionOutputAdapter', () {
     const String injection = "]]) frame.display.clear() os.execute('x') --";
 

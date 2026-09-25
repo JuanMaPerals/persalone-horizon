@@ -204,8 +204,8 @@ final class _Normalised {
   final int unrenderable;
 }
 
-/// Ordered caption pages. Page navigation on the device is not wired yet:
-/// the caption path shows page 1 and reports [pageCount].
+/// Ordered caption pages. The runtime caption path shows page 1 and reports
+/// [pageCount]; hosts navigate pages with HaloDeviceAdapter.displayTextPage.
 final class HaloCaptionComposition {
   const HaloCaptionComposition._({
     required this.pages,
@@ -223,10 +223,11 @@ final class HaloCaptionComposition {
 
   /// Result value of a displayText query: `page:<shown>/<total>`, followed by
   /// `;folded:<n>` and/or `;replaced:<n>` when glyphs were degraded.
-  static String resultValue(HaloCaptionComposition composition) {
+  static String resultValue(HaloCaptionComposition composition,
+      {int page = 0}) {
     final StringBuffer value = StringBuffer(composition.isEmpty
         ? 'page:0/0'
-        : 'page:1/${composition.pageCount}');
+        : 'page:${page + 1}/${composition.pageCount}');
     if (composition.foldedChars > 0) {
       value.write(';folded:${composition.foldedChars}');
     }
