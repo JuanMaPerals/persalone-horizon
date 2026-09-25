@@ -75,6 +75,12 @@ jobs:
           HORIZON_E2E_REQUIRED: '1'
           HORIZON_E2E_ARTIFACTS: ${{ runner.temp }}/e2e-emulated
         run: flutter test test/e2e
+      - name: Official emulator transport (button reporter, framebuffer PNG)
+        working-directory: packages/halo_emulator
+        env:
+          HORIZON_E2E_PYTHON: ${{ runner.temp }}/halo-emulator/bin/python
+          HORIZON_E2E_REQUIRED: '1'
+        run: dart test
       - name: Upload emulated framebuffer evidence
         if: always()
         uses: actions/upload-artifact@v4

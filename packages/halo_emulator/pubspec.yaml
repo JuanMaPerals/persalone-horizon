@@ -1,0 +1,15 @@
+name: persalone_halo_emulator
+description: HaloTransport backed by the official halo-emulator through a JSON-lines Python bridge. Execution environment EMULATED, never HALO_REAL.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+resolution: workspace
+dependencies:
+  persalone_contracts:
+    path: ../contracts
+  persalone_halo_core:
+    path: ../halo_core
+dev_dependencies:
+  lints: ^5.1.1
+  test: ^1.25.15
