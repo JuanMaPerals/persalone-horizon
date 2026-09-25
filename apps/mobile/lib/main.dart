@@ -151,10 +151,19 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   Future<void> _openValidationLog() async {
     final RuntimeEventStream events = RuntimeEventStream(_runtime);
     _validationEvents = events;
-    final ValidationRecorder recorder = await ValidationRecorder.open(
-      Directory('${Directory.systemTemp.path}/horizon-validation'),
-      events.events,
-    );
+    final ValidationRecorder recorder;
+    try {
+      recorder = await ValidationRecorder.open(
+        Directory('${Directory.systemTemp.path}/horizon-validation'),
+        events.events,
+      );
+    } on Object catch (error) {
+      // The validation run must say it is not recording, never fail silently.
+      debugPrint('HORIZON_VALIDATION_LOG unavailable: ${error.runtimeType}');
+      return;
+    }
+    // Only the file path is logged (for `adb run-as` pull), never content.
+    debugPrint('HORIZON_VALIDATION_LOG ${recorder.eventsFile.path}');
     _validationRecorder = recorder;
     recorder.updateMeta(<String, Object>{'validationBuild': true});
     _captureConfigSubscription = _microphone.captureConfigs.listen(
