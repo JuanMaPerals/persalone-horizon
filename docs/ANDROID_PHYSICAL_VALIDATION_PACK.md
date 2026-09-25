@@ -6,6 +6,13 @@ number in this pack is MEASURED until a person runs it on a physical phone.
 
 Loop under test: **mic → STT → translation → TTS → (speaker) → mic**.
 
+| Item | State until a physical run |
+|---|---|
+| ECHO_RISK (self-echo on the phone speaker path) | BLOCKED_HARDWARE — detection ready, not observed |
+| AEC (`VOICE_COMMUNICATION` + AcousticEchoCanceler) | BLOCKED_HARDWARE — selectable, availability unknown per device |
+| `speechEndToFinal` and every other latency on device | BLOCKED_HARDWARE — only EMULATED/SIMULATED numbers exist |
+| Kotlin / JVM | VERIFIED in CI (`android-apk` job compiles Kotlin and runs `ValidationSupportTest`) |
+
 ## What the pack adds
 
 | Piece | Where | Tested by |
