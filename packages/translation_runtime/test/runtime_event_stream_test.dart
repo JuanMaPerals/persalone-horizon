@@ -126,6 +126,37 @@ void main() {
     _golden('runtime-events.latency.v1.ndjson', lines);
   });
 
+  test('validation run: end of speech, self-echo and glyph limit, no text',
+      () async {
+    final _Scenario s = await _Scenario.start();
+    s.tts.reportsProgress = true;
+    s.captions.deliveredReason = 'glyphsReplaced';
+    await s.finalTurn(1, CaptionDeliveryStatus.delivered, endedAt: 400);
+    // Heard while the device is still speaking turn 1's translation.
+    await s.finalTurn(2, CaptionDeliveryStatus.delivered,
+        endedAt: 1500, text: _privateTranslation);
+    await s.runtime.stop();
+    final List<String> lines = await s.finish();
+
+    final List<Map<String, Object?>> events = _decode(lines);
+    final List<Map<String, Object?>> endToFinal = events
+        .where((e) => e['kind'] == 'latency' && e['stage'] == 'speechEndToFinal')
+        .toList();
+    expect(endToFinal.map((e) => e['micros']), <int>[600, 500]);
+    final List<Object?> echo = events
+        .where((e) => e['code'] == 'selfEchoSuspected')
+        .map((e) => e['detail'])
+        .toList();
+    expect(echo, <String>['duringTts.textOverlap']);
+    expect(
+        events
+            .where((e) => e['kind'] == 'caption')
+            .map((e) => e['reason']),
+        everyElement('glyphsReplaced'));
+    _expectRedactedAndOrdered(lines, events);
+    _golden('runtime-events.validation.v1.ndjson', lines);
+  });
+
   test('free-form diagnostic detail is reduced to a coded token', () {
     const LiveTranslationDiagnostic diagnostic = LiveTranslationDiagnostic(
       code: LiveTranslationDiagnosticCode.providerUnavailable,
@@ -194,13 +225,15 @@ AudioFrame _frame() => AudioFrame(
     );
 
 final class _Scenario {
-  _Scenario._(this.runtime, this.stream, this.input, this.stt, this.captions);
+  _Scenario._(this.runtime, this.stream, this.input, this.stt, this.captions,
+      this.tts);
 
   final HorizonTranslationRuntime runtime;
   final RuntimeEventStream stream;
   final _Input input;
   final _Stt stt;
   final _Captions captions;
+  final _Tts tts;
   final List<String> _lines = <String>[];
   late final StreamSubscription<RuntimeEvent> _sub;
 
@@ -219,11 +252,12 @@ final class _Scenario {
     final _Input input = _Input();
     final _Stt stt = _Stt();
     final _Captions captions = _Captions();
+    final _Tts tts = _Tts();
     final HorizonTranslationRuntime runtime = HorizonTranslationRuntime(
       input: input,
       stt: stt,
       translator: _Translator(),
-      synthesizer: _Tts(),
+      synthesizer: tts,
       captions: captions,
       clock: () => DateTime.fromMicrosecondsSinceEpoch(runtimeTick += 10),
       // Deterministic monotonic clock: each reading advances 1.5 ms.
@@ -235,7 +269,8 @@ final class _Scenario {
       deviceSnapshots: deviceSnapshots,
       deviceEnvironment: ExecutionEnvironment.emulated,
     );
-    final _Scenario s = _Scenario._(runtime, stream, input, stt, captions);
+    final _Scenario s =
+        _Scenario._(runtime, stream, input, stt, captions, tts);
     s._sub = stream.events.listen(
         (RuntimeEvent e) => s._lines.add(RuntimeEventStream.encodeLine(e)));
     await runtime.start(
@@ -256,15 +291,17 @@ final class _Scenario {
     return s;
   }
 
-  Future<void> finalTurn(int sequence, CaptionDeliveryStatus status) async {
+  Future<void> finalTurn(int sequence, CaptionDeliveryStatus status,
+      {int? endedAt, String text = _privateSource}) async {
     captions.status = status;
     stt.controller.add(TranscriptSegment(
       session: session,
       sequence: sequence,
-      text: _privateSource,
+      text: text,
       stability: TranscriptStability.finalResult,
-      observedAtMicros: sequence,
+      observedAtMicros: endedAt == null ? sequence : sequence * 1000,
       truthLabel: TruthLabel.simulated,
+      speechEndedAtMicros: endedAt,
     ));
     await Future<void>.delayed(Duration.zero);
     await Future<void>.delayed(Duration.zero);
@@ -358,6 +395,11 @@ final class _Translator implements TextTranslationProvider {
 }
 
 final class _Tts implements SpeechSynthesisProvider {
+  final StreamController<LiveTranslationDiagnostic> _diagnostics =
+      StreamController<LiveTranslationDiagnostic>.broadcast();
+
+  /// Emits synthesisStarted like the Android provider when true.
+  bool reportsProgress = false;
   @override
   String get providerId => 'golden-tts';
   @override
@@ -365,11 +407,20 @@ final class _Tts implements SpeechSynthesisProvider {
   @override
   Stream<ProviderSnapshot> get snapshots => const Stream.empty();
   @override
-  Stream<LiveTranslationDiagnostic> get diagnostics => const Stream.empty();
+  Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
   @override
   Future<void> prepare(LiveTranslationConfig c) async {}
   @override
-  Future<void> speak(TranslationSegment s) async {}
+  Future<void> speak(TranslationSegment s) async {
+    if (reportsProgress) {
+      _diagnostics.add(LiveTranslationDiagnostic(
+        code: LiveTranslationDiagnosticCode.synthesisStarted,
+        component: 'golden-tts',
+        observedAtMicros: 0,
+        sequence: s.sequence,
+      ));
+    }
+  }
   @override
   Future<void> stop() async {}
   @override
@@ -378,6 +429,7 @@ final class _Tts implements SpeechSynthesisProvider {
 
 final class _Captions implements CaptionOutputAdapter {
   CaptionDeliveryStatus status = CaptionDeliveryStatus.delivered;
+  String? deliveredReason;
   bool throwOnShow = false;
   @override
   String get adapterId => 'golden-captions';
@@ -396,7 +448,7 @@ final class _Captions implements CaptionOutputAdapter {
           : TruthLabel.blocked,
       adapterId: adapterId,
       reason: status == CaptionDeliveryStatus.delivered
-          ? null
+          ? deliveredReason
           : 'capabilityUnavailable',
     );
   }

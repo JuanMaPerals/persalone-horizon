@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -40,6 +41,15 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   static const AudioFormat _format = AudioFormat.voice16kMono;
   static const int _maxSampleBytes = 32000;
   static final Stopwatch _clock = Stopwatch()..start();
+
+  /// Physical validation builds (`--dart-define=HORIZON_VALIDATION_LOG=true`)
+  /// record the redacted runtime event stream and coded capture metadata to
+  /// the app cache (`horizon-validation/`), pulled with `adb run-as`.
+  static const bool _validationLog =
+      bool.fromEnvironment('HORIZON_VALIDATION_LOG');
+  RuntimeEventStream? _validationEvents;
+  ValidationRecorder? _validationRecorder;
+  StreamSubscription<AndroidCaptureConfig>? _captureConfigSubscription;
 
   late final AndroidMicrophoneAdapter _microphone;
   late final AndroidSpeakerAdapter _speaker;
@@ -111,6 +121,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _runtimeDiagnosticSubscription = _runtime.diagnostics.listen(
       _observeRuntimeDiagnostic,
     );
+    if (_validationLog) {
+      unawaited(_openValidationLog());
+    }
     _translationSnapshotSubscription = _translator.snapshots.listen(
       _observeTranslationSnapshot,
     );
@@ -125,11 +138,28 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _translationSubscription?.cancel();
     _runtimeDiagnosticSubscription?.cancel();
     _translationSnapshotSubscription?.cancel();
+    _captureConfigSubscription?.cancel();
+    _validationRecorder?.close();
+    _validationEvents?.close();
     _ownedController?.dispose();
     _runtime.dispose();
     _microphone.dispose();
     _speaker.dispose();
     super.dispose();
+  }
+
+  Future<void> _openValidationLog() async {
+    final RuntimeEventStream events = RuntimeEventStream(_runtime);
+    _validationEvents = events;
+    final ValidationRecorder recorder = await ValidationRecorder.open(
+      Directory('${Directory.systemTemp.path}/horizon-validation'),
+      events.events,
+    );
+    _validationRecorder = recorder;
+    recorder.updateMeta(<String, Object>{'validationBuild': true});
+    _captureConfigSubscription = _microphone.captureConfigs.listen(
+      (AndroidCaptureConfig config) => recorder.updateMeta(config.toJson()),
+    );
   }
 
   Future<void> _requestPermission() async {

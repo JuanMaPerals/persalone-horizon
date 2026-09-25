@@ -270,6 +270,33 @@ void main() {
       expect(transport.executed.last, 'frame.display.clear()print(1)');
     });
 
+    test('UNICODE LIMIT: degraded glyphs are reported on the delivery',
+        () async {
+      final ScriptedHaloFixture fixture =
+          ScriptedHaloFixture(nowMicros: () => 100);
+      addTearDown(fixture.dispose);
+      final Future<DeviceDiscovery> discovered = fixture.discoveries.first;
+      await fixture.startDiscovery();
+      await fixture.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(fixture);
+
+      final CaptionDelivery plain = await captions.show(_caption('hello'));
+      expect(plain.reason, isNull);
+      expect(plain.foldedGlyphs + plain.replacedGlyphs, 0);
+
+      final CaptionDelivery folded = await captions.show(_caption('qué tal'));
+      expect(folded.status, CaptionDeliveryStatus.delivered);
+      expect(folded.reason, 'glyphsFolded');
+      expect(folded.foldedGlyphs, 1);
+
+      final CaptionDelivery replaced =
+          await captions.show(_caption('año 中文'));
+      expect(replaced.reason, 'glyphsReplaced');
+      expect(replaced.foldedGlyphs, 1);
+      expect(replaced.replacedGlyphs, 2);
+    });
+
     test('reports a fixture as SIMULATED, never HALO_REAL or EMULATED',
         () async {
       final ScriptedHaloFixture fixture =

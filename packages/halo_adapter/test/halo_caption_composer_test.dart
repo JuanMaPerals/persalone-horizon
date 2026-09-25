@@ -75,6 +75,22 @@ void main() {
     _expectInsideSafeCircle(c);
   });
 
+  test('UNICODE LIMIT: degradation is reported in the result, never hidden',
+      () {
+    final HaloCaptionComposition ascii = HaloCaptionComposer.compose('Hello');
+    expect(HaloCaptionComposition.resultValue(ascii), 'page:1/1');
+    final HaloCaptionComposition folded =
+        HaloCaptionComposer.compose('Qué tal señor');
+    expect(HaloCaptionComposition.resultValue(folded), 'page:1/1;folded:2');
+    final HaloCaptionComposition replaced =
+        HaloCaptionComposer.compose('Привет 中文 ok');
+    expect(HaloCaptionComposition.resultValue(replaced),
+        'page:1/1;replaced:8');
+    final HaloCaptionComposition both = HaloCaptionComposer.compose('Año 中');
+    expect(HaloCaptionComposition.resultValue(both),
+        'page:1/1;folded:1;replaced:1');
+  });
+
   test('empty or whitespace-only captions compose to nothing', () {
     expect(HaloCaptionComposer.compose('  \n\t ').isEmpty, isTrue);
     expect(HaloCaptionComposition.resultValue(HaloCaptionComposer.compose('')),

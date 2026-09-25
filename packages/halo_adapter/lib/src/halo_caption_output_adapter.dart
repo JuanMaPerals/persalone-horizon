@@ -32,13 +32,20 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
         HaloLuaQuery.displayText,
         text: update.text,
       );
+      final _Layout layout = _Layout.parse(result.value);
       return _delivery(
         update,
         CaptionDeliveryStatus.delivered,
         result.truthLabel == TruthLabel.measured
             ? TruthLabel.prepared
             : result.truthLabel,
-        pageCount: _pageCount(result.value),
+        // Degraded glyphs are reported, never presented as Unicode support.
+        reason: layout.replaced > 0
+            ? 'glyphsReplaced'
+            : layout.folded > 0
+                ? 'glyphsFolded'
+                : null,
+        layout: layout,
       );
     } on RuntimeError catch (error) {
       final refused = error.code == RuntimeErrorCode.capabilityUnavailable ||
@@ -62,7 +69,7 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
     CaptionDeliveryStatus status,
     TruthLabel truthLabel, {
     String? reason,
-    int pageCount = 1,
+    _Layout layout = const _Layout(1, 0, 0),
   }) =>
       CaptionDelivery(
         session: update.session,
@@ -72,14 +79,28 @@ final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
         truthLabel: truthLabel,
         adapterId: adapterId,
         reason: reason,
-        pageCount: pageCount,
+        pageCount: layout.pages,
+        foldedGlyphs: layout.folded,
+        replacedGlyphs: layout.replaced,
       );
+}
 
-  static final RegExp _pages = RegExp(r'^page:\d+/(\d+)$');
+final class _Layout {
+  const _Layout(this.pages, this.folded, this.replaced);
 
-  /// Parses `page:<shown>/<total>`; any other value counts as one page.
-  static int _pageCount(String value) {
-    final RegExpMatch? match = _pages.firstMatch(value);
-    return match == null ? 1 : int.parse(match.group(1)!);
+  final int pages;
+  final int folded;
+  final int replaced;
+
+  static final RegExp _value =
+      RegExp(r'^page:\d+/(\d+)(?:;folded:(\d+))?(?:;replaced:(\d+))?$');
+
+  /// Parses `page:<shown>/<total>[;folded:n][;replaced:n]`; any other value
+  /// counts as one page without degradation.
+  static _Layout parse(String value) {
+    final RegExpMatch? match = _value.firstMatch(value);
+    if (match == null) return const _Layout(1, 0, 0);
+    int count(int group) => int.parse(match.group(group) ?? '0');
+    return _Layout(count(1), count(2), count(3));
   }
 }

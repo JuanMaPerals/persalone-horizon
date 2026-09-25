@@ -15,6 +15,14 @@ final class AndroidMicrophoneAdapter implements AudioInputAdapter {
         _nowMicros = nowMicros ?? _defaultNowMicros;
 
   static const String revision = 'android-host-audio/1';
+
+  /// Capture configuration reported by the platform when capture started
+  /// (source, echo canceller); null until the platform reports it.
+  AndroidCaptureConfig? get captureConfig => _captureConfig;
+  AndroidCaptureConfig? _captureConfig;
+  final StreamController<AndroidCaptureConfig> _captureConfigs =
+      StreamController<AndroidCaptureConfig>.broadcast();
+  Stream<AndroidCaptureConfig> get captureConfigs => _captureConfigs.stream;
   static final Stopwatch _clock = Stopwatch()..start();
 
   final AndroidHostAudioBridge _bridge;
@@ -145,6 +153,7 @@ final class AndroidMicrophoneAdapter implements AudioInputAdapter {
     await _diagnostics.close();
     await _latency.close();
     await _frames.close();
+    await _captureConfigs.close();
   }
 
   void _onNativeEvent(Map<Object?, Object?> event) {
@@ -174,6 +183,13 @@ final class AndroidMicrophoneAdapter implements AudioInputAdapter {
         _emitDiagnostic(AudioDiagnosticCode.captureTimestampUnavailable);
       case 'route_changed':
         _emitDiagnostic(AudioDiagnosticCode.routeChanged);
+      case 'capture_started':
+        final AndroidCaptureConfig config = AndroidCaptureConfig.fromEvent(event);
+        _captureConfig = config;
+        if (!_captureConfigs.isClosed) _captureConfigs.add(config);
+      case 'capture_stopped':
+        // Already reported by stop(); nothing to add.
+        break;
       case 'capture_error':
         _emitDiagnostic(
           AudioDiagnosticCode.captureReadError,
@@ -283,4 +299,39 @@ final class AndroidMicrophoneAdapter implements AudioInputAdapter {
   static int? _asInt(Object? value) => value is int ? value : null;
 
   static int _defaultNowMicros() => _clock.elapsedMicroseconds;
+}
+
+/// Platform capture configuration for A/B validation. Coded values only.
+final class AndroidCaptureConfig {
+  const AndroidCaptureConfig({
+    required this.audioSource,
+    required this.echoCancelerAvailable,
+    required this.echoCancelerEnabled,
+    required this.noiseSuppressorAvailable,
+  });
+
+  factory AndroidCaptureConfig.fromEvent(Map<Object?, Object?> event) {
+    final Object? source = event['audioSource'];
+    return AndroidCaptureConfig(
+      audioSource: source == 'voiceRecognition' || source == 'voiceCommunication'
+          ? source! as String
+          : 'unknown',
+      echoCancelerAvailable: event['aecAvailable'] == true,
+      echoCancelerEnabled: event['aecEnabled'] == true,
+      noiseSuppressorAvailable: event['nsAvailable'] == true,
+    );
+  }
+
+  /// `voiceRecognition`, `voiceCommunication`, or `unknown`.
+  final String audioSource;
+  final bool echoCancelerAvailable;
+  final bool echoCancelerEnabled;
+  final bool noiseSuppressorAvailable;
+
+  Map<String, Object> toJson() => <String, Object>{
+        'audioSource': audioSource,
+        'aecAvailable': echoCancelerAvailable,
+        'aecEnabled': echoCancelerEnabled,
+        'nsAvailable': noiseSuppressorAvailable,
+      };
 }

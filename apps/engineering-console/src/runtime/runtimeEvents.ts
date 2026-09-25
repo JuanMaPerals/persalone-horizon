@@ -10,10 +10,11 @@ export type SessionState = 'idle' | 'preparing' | 'listening' | 'stopping' | 'st
 export type CaptionStatus = 'delivered' | 'blocked' | 'failed';
 export type DeviceState = 'idle' | 'discovering' | 'connecting' | 'ready' | 'disconnecting' | 'disconnected' | 'failed';
 /** Turn intervals the runtime measures on its own monotonic clock. */
-export type LatencyStage = 'finalToTranslation' | 'translationToCaption' | 'finalToCaption' | 'finalToSpeechQueued';
+export type LatencyStage = 'speechEndToFinal' | 'finalToTranslation' | 'translationToCaption' | 'finalToCaption' | 'finalToSpeechQueued';
 /** Intervals no event can prove today; always rendered UNKNOWN. */
-export const UNOBSERVABLE_LATENCY_STAGES = ['speechEndToFinal', 'speechQueuedToAudible'] as const;
-export const LATENCY_STAGES: readonly LatencyStage[] = ['finalToTranslation', 'translationToCaption', 'finalToCaption', 'finalToSpeechQueued'];
+export const UNOBSERVABLE_LATENCY_STAGES = ['speechQueuedToAudible'] as const;
+/** speechEndToFinal has samples only when the STT provider reports end of speech (Android physical runs). */
+export const LATENCY_STAGES: readonly LatencyStage[] = ['speechEndToFinal', 'finalToTranslation', 'translationToCaption', 'finalToCaption', 'finalToSpeechQueued'];
 /** Minimum samples before a percentile is shown instead of INSUFFICIENT. */
 export const MIN_SAMPLES_P50 = 5;
 export const MIN_SAMPLES_P95 = 20;
@@ -261,6 +262,14 @@ export interface RuntimeView {
   readonly rejectedLines: number;
   readonly degraded: boolean;
   readonly latency: Readonly<Record<LatencyStage, LatencyStat>>;
+  /**
+   * Delivered captions whose text fell outside the HUD glyph set: accented
+   * Latin folded to ASCII, or characters replaced by `?`. This is a known
+   * limitation (ASCII-only device font), not Unicode support.
+   */
+  readonly captionGlyphs: { readonly folded: number; readonly replaced: number };
+  /** Final turns that arrived while/just after TTS spoke: possible self-echo. */
+  readonly selfEcho: { readonly suspected: number; readonly withTextOverlap: number };
 }
 
 const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied']);
@@ -279,7 +288,10 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
   let errorCount = 0;
   let lastSequence: number | null = null;
   let sequenceGaps = 0;
+  const captionGlyphs = { folded: 0, replaced: 0 };
+  const selfEcho = { suspected: 0, withTextOverlap: 0 };
   const latencyEvents: Record<LatencyStage, LatencyEvent[]> = {
+    speechEndToFinal: [],
     finalToTranslation: [],
     translationToCaption: [],
     finalToCaption: [],
@@ -298,6 +310,8 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
         break;
       case 'caption':
         captions[event.status] += 1;
+        if (event.status === 'delivered' && event.reason === 'glyphsFolded') captionGlyphs.folded += 1;
+        if (event.status === 'delivered' && event.reason === 'glyphsReplaced') captionGlyphs.replaced += 1;
         captionEnvironment = event.environment;
         captionTruth = event.truth;
         break;
@@ -310,6 +324,10 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
         if (errorCodes.has(event.code)) {
           errorCount += 1;
           lastError = { code: event.code, component: event.component, detail: event.detail };
+        }
+        if (event.code === 'selfEchoSuspected') {
+          selfEcho.suspected += 1;
+          if (event.detail?.endsWith('.textOverlap')) selfEcho.withTextOverlap += 1;
         }
         break;
       case 'latency':
@@ -333,7 +351,10 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
     sequenceGaps,
     rejectedLines: stream.rejected.length,
     degraded: sequenceGaps > 0 || stream.rejected.length > 0,
+    captionGlyphs,
+    selfEcho,
     latency: {
+      speechEndToFinal: latencyStat(latencyEvents.speechEndToFinal),
       finalToTranslation: latencyStat(latencyEvents.finalToTranslation),
       translationToCaption: latencyStat(latencyEvents.translationToCaption),
       finalToCaption: latencyStat(latencyEvents.finalToCaption),

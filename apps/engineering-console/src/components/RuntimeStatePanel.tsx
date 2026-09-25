@@ -83,6 +83,8 @@ export function RuntimeStatePanel(): ReactElement {
       <div><dt>Device environment</dt><dd>{value((v) => v.deviceEnvironment)}</dd></div>
       <div><dt>Device evidence</dt><dd>{value((v) => v.deviceTruth)}</dd></div>
       <div><dt>Last error</dt><dd>{view ? (view.lastError ? `${view.lastError.code}${view.lastError.detail ? ` · ${view.lastError.detail}` : ''}` : 'none observed') : 'UNKNOWN'}</dd></div>
+      <div><dt>Captions degraded by the HUD font (ASCII only)</dt><dd>{view ? `${view.captionGlyphs.replaced} with ? replacement · ${view.captionGlyphs.folded} with folded accents` : 'UNKNOWN'}</dd></div>
+      <div><dt>Self-echo suspected (turns during/after TTS)</dt><dd>{view ? `${view.selfEcho.suspected} (${view.selfEcho.withTextOverlap} with text overlap)` : 'UNKNOWN'}</dd></div>
       <div><dt>Last sequence</dt><dd>{value((v) => v.lastSequence ?? 'UNKNOWN')}</dd></div>
     </dl>
     <table className="latency-table" aria-label="Turn latency">

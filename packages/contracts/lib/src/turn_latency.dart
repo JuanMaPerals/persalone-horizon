@@ -10,7 +10,11 @@ import 'caption.dart';
 ///   waits for once the speaker's turn is recognised).
 /// - [finalToSpeechQueued]: final transcript -> the synthesizer accepted the
 ///   utterance. This is NOT audible output.
+/// - [speechEndToFinal]: recognizer end of speech -> final transcript, both
+///   reported by the STT provider on its own monotonic clock; emitted only
+///   when the provider supplies the end-of-speech time.
 enum TurnLatencyStage {
+  speechEndToFinal,
   finalToTranslation,
   translationToCaption,
   finalToCaption,
@@ -20,9 +24,6 @@ enum TurnLatencyStage {
 /// Intervals the runtime cannot observe on its clock. They stay UNKNOWN until
 /// a provider exposes the endpoint on a shared monotonic timebase.
 enum UnobservableLatencyStage {
-  /// End of speech -> final transcript (provider endpointing).
-  speechEndToFinal,
-
   /// Utterance queued -> first audible sample (platform playback).
   speechQueuedToAudible,
 }

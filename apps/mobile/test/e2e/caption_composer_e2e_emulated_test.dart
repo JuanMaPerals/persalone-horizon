@@ -62,7 +62,7 @@ void main() {
 
       final HaloLuaResult result = await device
           .executeAllowedLua(HaloLuaQuery.displayText, text: entry.value);
-      expect(result.value, 'page:1/${composition.pageCount}');
+      expect(result.value, HaloCaptionComposition.resultValue(composition));
       await _checkFrame(transport, '${entry.key}_p1', composition.pages[0]);
 
       for (int page = 1; page < composition.pageCount; page++) {
@@ -75,6 +75,8 @@ void main() {
       if (entry.key == 'unicode') {
         expect(composition.foldedChars, greaterThan(0));
         expect(composition.unrenderableChars, 2);
+        // UNICODE LIMIT: the loss is reported, not hidden.
+        expect(result.value, endsWith(';folded:${composition.foldedChars};replaced:2'));
       }
     });
   }

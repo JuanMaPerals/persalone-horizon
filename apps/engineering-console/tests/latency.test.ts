@@ -102,7 +102,7 @@ describe('hostile latency events are rejected', () => {
     ['text field', { text: 'hola' }],
     ['non-MEASURED evidence', { truth: 'PREPARED' }],
     ['simulated evidence', { truth: 'SIMULATED' }],
-    ['unknown stage', { stage: 'speechEndToFinal' }],
+    ['unobservable stage', { stage: 'speechQueuedToAudible' }],
     ['negative interval', { micros: -1 }],
     ['fractional interval', { micros: 1.5 }],
     ['absurd interval', { micros: MAX_LATENCY_MICROS + 1 }],
@@ -117,5 +117,33 @@ describe('hostile latency events are rejected', () => {
     const view = reduceRuntimeEvents(parseRuntimeEventStream(text));
     expect(view.degraded).toBe(true);
     expect(view.latency.finalToCaption.samples).toBe(1);
+  });
+});
+
+describe('physical validation signals (golden from G5 runtime)', () => {
+  const view = () => reduceRuntimeEvents(parseRuntimeEventStream(golden('runtime-events.validation.v1.ndjson')));
+
+  it('parses without rejection and measures end of speech to final', () => {
+    const stream = parseRuntimeEventStream(golden('runtime-events.validation.v1.ndjson'));
+    expect(stream.rejected).toEqual([]);
+    const stat = view().latency.speechEndToFinal;
+    expect(stat.samples).toBe(2);
+    expect(stat.latestMicros).toBe(500);
+    expect(stat.truth).toBe('MEASURED');
+  });
+
+  it('counts self-echo suspicion, with and without text overlap', () => {
+    expect(view().selfEcho).toEqual({ suspected: 1, withTextOverlap: 1 });
+  });
+
+  it('reports glyph degradation as a limit, not as Unicode support', () => {
+    expect(view().captionGlyphs).toEqual({ folded: 0, replaced: 2 });
+  });
+
+  it('no validation signals means zero, never inferred', () => {
+    const empty = reduceRuntimeEvents({ events: [], rejected: [] });
+    expect(empty.selfEcho).toEqual({ suspected: 0, withTextOverlap: 0 });
+    expect(empty.captionGlyphs).toEqual({ folded: 0, replaced: 0 });
+    expect(empty.latency.speechEndToFinal.latestMicros).toBe('UNKNOWN');
   });
 });

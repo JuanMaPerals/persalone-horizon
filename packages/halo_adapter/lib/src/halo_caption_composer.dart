@@ -6,6 +6,12 @@ import 'halo_bounded_display.dart';
 
 /// Lays translated text out for Halo's 256x256 round display.
 ///
+/// State: EMULATED_PREPARED. Layout is verified on the official emulator only.
+/// UNICODE LIMIT: the device fonts draw printable ASCII only. Characters
+/// outside it are degraded, never supported: accented Latin is folded to ASCII
+/// and everything else (CJK, Cyrillic, Arabic, emoji...) becomes `?`. The
+/// composition counts both, and the caption delivery reports them.
+///
 /// Metrics come from the official halo-emulator's port of the firmware
 /// `canvas_draw_char` (pinned SDK 462dff4): the only fonts (Dogica, Dogica
 /// Bold) cover printable ASCII 0x20-0x7E, are monospaced with an 8 px
@@ -215,9 +221,20 @@ final class HaloCaptionComposition {
 
   int get pageCount => pages.length;
 
-  /// Result value of a displayText query: `page:<shown>/<total>`.
-  static String resultValue(HaloCaptionComposition composition) =>
-      composition.isEmpty ? 'page:0/0' : 'page:1/${composition.pageCount}';
+  /// Result value of a displayText query: `page:<shown>/<total>`, followed by
+  /// `;folded:<n>` and/or `;replaced:<n>` when glyphs were degraded.
+  static String resultValue(HaloCaptionComposition composition) {
+    final StringBuffer value = StringBuffer(composition.isEmpty
+        ? 'page:0/0'
+        : 'page:1/${composition.pageCount}');
+    if (composition.foldedChars > 0) {
+      value.write(';folded:${composition.foldedChars}');
+    }
+    if (composition.unrenderableChars > 0) {
+      value.write(';replaced:${composition.unrenderableChars}');
+    }
+    return value.toString();
+  }
   bool get isEmpty => pages.isEmpty;
 
   HaloDisplayCommand command(int page, {required bool powerOn}) =>

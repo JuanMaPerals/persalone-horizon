@@ -5,3 +5,4 @@ export 'src/horizon_translation_runtime.dart';
 export 'src/remote_control_gateway.dart';
 export 'src/runtime_event_server.dart';
 export 'src/runtime_event_stream.dart';
+export 'src/validation_recorder.dart';

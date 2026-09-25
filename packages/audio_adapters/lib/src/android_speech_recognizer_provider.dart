@@ -26,6 +26,10 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
   LiveTranslationConfig? _config;
   bool _disposed = false;
 
+  /// Last recognizer end-of-speech time (platform monotonic clock), attached
+  /// to the next final result so end-of-speech to final can be measured.
+  int? _speechEndedAtMicros;
+
   @override
   String get providerId => 'android-speech-recognizer-pfd';
 
@@ -128,6 +132,7 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
   @override
   Future<void> stop() async {
     _config = null;
+    _speechEndedAtMicros = null;
     await _events?.cancel();
     _events = null;
     try {
@@ -159,7 +164,10 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       _emitUnavailable();
       return;
     }
-    if (type != 'partial' && type != 'final') {
+    if (type != 'partial' &&
+        type != 'final' &&
+        type != 'speechStarted' &&
+        type != 'speechEnded') {
       return;
     }
     final eventSessionId = event['sessionId'];
@@ -170,6 +178,18 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       _emitDiagnostic(LiveTranslationDiagnosticCode.staleCallbackDiscarded);
       return;
     }
+    if (type == 'speechStarted' || type == 'speechEnded') {
+      final observed = event['observedAtMicros'];
+      if (type == 'speechStarted') {
+        // A new utterance: an older end-of-speech no longer describes it.
+        _speechEndedAtMicros = null;
+        _emitDiagnostic(LiveTranslationDiagnosticCode.speechStarted);
+      } else {
+        _speechEndedAtMicros = observed is int ? observed : null;
+        _emitDiagnostic(LiveTranslationDiagnosticCode.speechEnded);
+      }
+      return;
+    }
     final text = event['text'];
     final sequence = event['sequence'];
     if (text is! String || sequence is! int) {
@@ -178,6 +198,12 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
     }
     final observedAt = event['observedAtMicros'];
     final confidence = event['confidence'];
+    final bool isFinal = type == 'final';
+    // The end-of-speech time is only meaningful on the same clock as the
+    // result: both come from the platform event, never from a Dart fallback.
+    final int? speechEndedAt =
+        isFinal && observedAt is int ? _speechEndedAtMicros : null;
+    if (isFinal) _speechEndedAtMicros = null;
     _transcripts.add(TranscriptSegment(
       session: config.session,
       sequence: sequence,
@@ -188,6 +214,7 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
       observedAtMicros: observedAt is int ? observedAt : _nowMicros,
       confidence: confidence is num ? confidence.toDouble() : null,
       truthLabel: TruthLabel.prepared,
+      speechEndedAtMicros: speechEndedAt,
     ));
   }
 

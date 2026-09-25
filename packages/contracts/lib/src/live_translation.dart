@@ -48,6 +48,7 @@ final class TranscriptSegment {
     required this.observedAtMicros,
     required this.truthLabel,
     this.confidence,
+    this.speechEndedAtMicros,
   });
 
   final TranslationSession session;
@@ -57,6 +58,10 @@ final class TranscriptSegment {
   final int observedAtMicros;
   final TruthLabel truthLabel;
   final double? confidence;
+
+  /// When the provider reported end of speech for this final result, on the
+  /// same clock as [observedAtMicros]; null when it did not report one.
+  final int? speechEndedAtMicros;
 }
 
 /// A translated final segment. The runtime does not send partial hypotheses to
@@ -99,6 +104,14 @@ enum LiveTranslationDiagnosticCode {
   captionFailed,
   panicExecuted,
   cleanupFailed,
+
+  /// Recognizer endpointing boundaries (no audio or text).
+  speechStarted,
+  speechEnded,
+
+  /// A final turn arrived while, or just after, the device was speaking a
+  /// translation: possible self-echo. A suspicion, not a verdict.
+  selfEchoSuspected,
 }
 
 /// Redacted event from a G5 provider or runtime. [detail] must never contain
