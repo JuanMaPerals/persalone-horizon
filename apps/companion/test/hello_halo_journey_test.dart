@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -156,6 +157,71 @@ void main() {
     expect(xh2.value('x-package-sha256'), xh1.value('x-package-sha256'));
     expect(pkg1, pkg2);
     expect(utf8.decode(pkg1.sublist(257, 262), allowMalformed: true), 'ustar');
+  });
+
+  test('the run is mirrored on the canonical runtime event stream (no text)',
+      skip: _skip, () async {
+    // Subscribe to the read-only SSE stream announced by /v1/health.
+    final (_, Object? health, _, _) = await call('GET', '/v1/health');
+    final Uri events = Uri.parse('${obj(health)['runtimeEvents']}');
+    expect(events.host, '127.0.0.1');
+    final HttpClientRequest sse = await http.getUrl(events);
+    sse.headers.set('accept', 'text/event-stream');
+    final HttpClientResponse stream = await sse.close();
+    final List<Map<String, Object?>> seen = <Map<String, Object?>>[];
+    final List<String> raw = <String>[];
+    final StreamSubscription<String> sub = stream
+        .transform(utf8.decoder)
+        .transform(const LineSplitter())
+        .listen((String line) {
+      if (line.startsWith('data: ')) {
+        raw.add(line);
+        final Object? d = jsonDecode(line.substring(6));
+        if (d is Map && d['schema'] == 'horizon.runtime-event.v1') {
+          seen.add(d.cast<String, Object?>());
+        }
+      }
+    });
+
+    final (_, Object? created, _, _) = await call('POST', '/v1/projects',
+        body: <String, Object?>{'template': 'hello-display', 'name': 'Events'});
+    final String id = '${obj(created)['projectId']}';
+    await call('PUT', '/v1/projects/$id/content',
+        body: <String, Object?>{'caption': _longCaption, 'advanceOn': 'single'});
+    final (_, Object? runJson, _, _) = await call('POST', '/v1/projects/$id/runs');
+    final String runId = '${obj(runJson)['runId']}';
+    await call('POST', '/v1/runs/$runId/button', body: <String, Object?>{'gesture': 'single'});
+    await call('POST', '/v1/runs/$runId/stop');
+    await call('POST', '/v1/panic');
+    final DateTime deadline = DateTime.now().add(const Duration(seconds: 5));
+    while (!seen.any((Map<String, Object?> e) => e['code'] == 'panicExecuted') &&
+        DateTime.now().isBefore(deadline)) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    await sub.cancel();
+
+    String kindOf(Map<String, Object?> e) => switch (e['kind']) {
+          'sessionState' => 'session:${e['state']}',
+          'deviceState' => 'device:${e['state']}:${e['environment']}',
+          'caption' => 'caption:${e['status']}:${e['environment']}',
+          'diagnostic' => 'diag:${e['code']}:${e['detail']}',
+          _ => '${e['kind']}',
+        };
+    final List<String> kinds = seen.map(kindOf).toList();
+    expect(kinds, containsAllInOrder(<String>[
+      'session:preparing',
+      'device:ready:EMULATED',
+      'caption:delivered:EMULATED',
+      'session:listening',
+      'diag:inputButton:single',
+      'caption:delivered:EMULATED',
+      'session:stopping',
+      'session:stopped',
+      'diag:panicExecuted:null',
+    ]));
+    expect(seen.where((Map<String, Object?> e) => e['kind'] == 'caption').first['truth'], 'PREPARED');
+    expect(raw.join('\n'), isNot(contains('deliberadamente')), reason: 'no caption text on the stream');
+    expect(kinds.where((String k) => k.contains('HALO_REAL')), isEmpty);
   });
 
   test('Panic stops every run and clears its display', skip: _skip, () async {

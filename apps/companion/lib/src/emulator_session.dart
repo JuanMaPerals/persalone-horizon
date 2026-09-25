@@ -42,6 +42,10 @@ final class EmulatorSession {
   final int pageCount;
   int page = 0;
   bool _closed = false;
+  StreamSubscription<DeviceAdapterSnapshot>? _snapshots;
+
+  /// Result value of the last page shown (`page:k/N[;folded:n][;replaced:n]`).
+  String? lastShown;
 
   final MetricSeries displayAck = MetricSeries('display.command_ack',
       stage: 'host->emulator display command acknowledged',
@@ -62,6 +66,7 @@ final class EmulatorSession {
     EmulatorConfig config, {
     required String caption,
     required String advanceOn,
+    void Function(DeviceAdapterSnapshot snapshot)? onDeviceSnapshot,
   }) async {
     final String? blocked = config.blockedReason;
     if (blocked != null) {
@@ -71,6 +76,9 @@ final class EmulatorSession {
     final EmulatorHaloTransport transport = EmulatorHaloTransport(
         python: config.python!, bridgeScript: config.bridgeScript!);
     final HaloDeviceAdapter device = HaloDeviceAdapter(transport: transport);
+    // Subscribed before connecting so connecting/ready are not missed.
+    final StreamSubscription<DeviceAdapterSnapshot>? snapshots =
+        onDeviceSnapshot == null ? null : device.snapshots.listen(onDeviceSnapshot);
     try {
       final Future<DeviceDiscovery> discovered = device.discoveries.first;
       await device.startDiscovery();
@@ -79,11 +87,13 @@ final class EmulatorSession {
     } on Object {
       await device.dispose();
       await transport.dispose();
+      await snapshots?.cancel();
       throw const ApiError(409, 'emulatorBlocked',
           <String, Object>{'reason': 'emulatorStartFailed'});
     }
     final EmulatorSession session =
-        EmulatorSession._(transport, device, caption, advanceOn, pageCount);
+        EmulatorSession._(transport, device, caption, advanceOn, pageCount)
+          .._snapshots = snapshots;
     await session.showPage(0);
     return session;
   }
@@ -96,6 +106,7 @@ final class EmulatorSession {
     final HaloLuaResult r = await _device.displayTextPage(caption, index);
     displayAck.add(w.elapsed);
     page = index;
+    lastShown = r.value;
     return r.value;
   }
 
@@ -146,6 +157,7 @@ final class EmulatorSession {
     }
     await _device.dispose();
     await _transport.dispose();
+    await _snapshots?.cancel();
   }
 
   /// Clears the display and reports the resulting frame (for the stop test).
