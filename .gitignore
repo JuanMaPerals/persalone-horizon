@@ -43,3 +43,7 @@ coverage/
 Thumbs.db
 *.log
 
+
+# Playwright (Studio E2E)
+apps/engineering-console/test-results/
+apps/engineering-console/playwright-report/

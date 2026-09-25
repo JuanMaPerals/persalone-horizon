@@ -7,8 +7,11 @@ import 'package:persalone_horizon_companion/horizon_companion.dart';
 /// ```text
 /// dart run bin/horizon_companion.dart --workspace DIR
 ///   [--port 47810] [--python VENV_PYTHON] [--bridge halo_emulator_bridge.py]
-///   [--allow-origin http://127.0.0.1:5173]...
+///   [--allow-origin http://127.0.0.1:5173]... [--token TOKEN]
 /// ```
+///
+/// `--token` fixes the pairing token (automated tests only); by default a
+/// random token is generated on every start.
 ///
 /// Prints one line `HORIZON_COMPANION_READY url=URL token=TOKEN`;
 /// paste the token into Studio to pair. The API listens on loopback only.
@@ -41,6 +44,7 @@ Future<void> main(List<String> args) async {
     ),
     port: int.parse(opts['port']?.last ?? '47810'),
     allowedOrigins: origins,
+    token: opts['token']?.last,
   );
   stdout.writeln('HORIZON_COMPANION_READY url=${api.uri} token=${api.token}');
   unawaited(ProcessSignal.sigint.watch().first.then((_) async {
