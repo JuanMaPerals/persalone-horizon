@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:persalone_contracts/persalone_contracts.dart';
-import 'package:persalone_halo_adapter/persalone_halo_adapter.dart';
+import 'package:persalone_halo_core/persalone_halo_core.dart';
 import 'package:test/test.dart';
 
 void main() {

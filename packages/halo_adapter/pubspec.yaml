@@ -10,6 +10,8 @@ dependencies:
     sdk: flutter
   persalone_contracts:
     path: ../contracts
+  persalone_halo_core:
+    path: ../halo_core
   brilliant_ble:
     git:
       url: https://github.com/brilliantlabsAR/brilliant_sdk.git

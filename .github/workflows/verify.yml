@@ -31,6 +31,7 @@ jobs:
       - name: Unit tests
         run: |
           (cd packages/contracts && dart test)
+          (cd packages/halo_core && dart test)
           (cd packages/halo_adapter && flutter test)
           (cd packages/audio_adapters && flutter test)
           (cd packages/translation_runtime && dart test)

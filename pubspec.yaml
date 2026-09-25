@@ -7,6 +7,7 @@ workspace:
   - apps/mobile
   - packages/contracts
   - packages/halo_adapter
+  - packages/halo_core
   - packages/audio_adapters
   - packages/translation_runtime
 dev_dependencies:
