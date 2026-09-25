@@ -43,6 +43,10 @@ android {
         }
     }
 
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.
@@ -54,6 +58,8 @@ android {
 
 dependencies {
     implementation("com.google.mlkit:translate:17.0.3")
+    // JVM unit tests for pure platform-channel helpers (ValidationSupport).
+    testImplementation("junit:junit:4.13.2")
 }
 
 flutter {
