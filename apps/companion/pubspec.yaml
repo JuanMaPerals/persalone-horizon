@@ -13,6 +13,8 @@ dependencies:
     path: ../../packages/halo_core
   persalone_halo_emulator:
     path: ../../packages/halo_emulator
+  persalone_translation_runtime:
+    path: ../../packages/translation_runtime
 dev_dependencies:
   lints: ^5.1.1
   test: ^1.25.15

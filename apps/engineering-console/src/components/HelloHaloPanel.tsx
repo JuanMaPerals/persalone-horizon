@@ -13,6 +13,7 @@ import {
   type RunView,
   type TestResult,
 } from '../studio/companionClient';
+import { TwinSection } from '../twin/TwinSection';
 
 const gestures: readonly Gesture[] = ['single', 'double', 'long'];
 const defaultUrl = 'http://127.0.0.1:47810';
@@ -233,6 +234,8 @@ export function HelloHaloPanel({ fetchImpl, preferredLocale }: { readonly fetchI
         <MetricsTable locale={locale} metrics={run.metrics} />
       </> : <p className="studio-muted">{t('run.noRun')}</p>}
     </Step> : null}
+
+    {project ? <TwinSection locale={locale} client={client} eventsUrl={health?.runtimeEvents ?? null} run={run} busy={busy !== null} onPress={(g) => void press(g)} /> : null}
 
     {project ? <Step title={t('test.heading')}>
       <button type="button" onClick={() => void test()} disabled={busy !== null || dirty}>{busy === 'test' ? t('test.running') : t('test.run')}</button>

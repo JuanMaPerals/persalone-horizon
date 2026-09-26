@@ -1,0 +1,85 @@
+{
+  "schema": "horizon.twin-asset.v1",
+  "asset": "halo.glb",
+  "sha256": "d58686f90b3767280d23eb0e20b6fcc0ff4226fc042840c7e9ce00734488ee12",
+  "bytes": 609924,
+  "provenance": "OFFICIAL_GEOMETRY",
+  "source": {
+    "repo": "https://github.com/brilliantlabsAR/docs",
+    "commit": "808d31790030f9b939474f949601ca63106978ab",
+    "path": "halo/halo.stl",
+    "sha256": "cb5aef98a7b37e4b97eb4a95e6b5d8837ab287e33a97fd97569d0f19420b78f4",
+    "license": "ISC",
+    "copyright": "Copyright (c) 2024 Brilliant Labs Ltd.",
+    "description": "Full Halo assembly: front, both lenses, both temple arms open (halo/hardware.md, Mechanical).",
+    "file": "halo.stl",
+    "bytes": 10078784,
+    "official": true
+  },
+  "geometry": {
+    "inputTriangles": 201574,
+    "weldedTriangles": 201574,
+    "triangles": 100786,
+    "simplification": {
+      "ratio": 0.5,
+      "error": 0.0005,
+      "note": "meshoptimizer relative error bound"
+    },
+    "boundingBoxMm": {
+      "min": [
+        2.404,
+        3.098,
+        3.466
+      ],
+      "max": [
+        142.074,
+        47.885,
+        162.143
+      ]
+    },
+    "transform": {
+      "centreMm": [
+        72.2387,
+        25.4916,
+        82.8047
+      ],
+      "scale": 0.001,
+      "axes": "X right(width) Y up Z front",
+      "units": "m"
+    }
+  },
+  "encoding": {
+    "container": "GLB",
+    "extensionsRequired": [
+      "EXT_meshopt_compression",
+      "KHR_mesh_quantization"
+    ],
+    "textures": 0,
+    "externalUris": 0
+  },
+  "pipeline": {
+    "steps": [
+      "sanitize/validate binary STL",
+      "normalise (recentre, mm->m)",
+      "build glTF",
+      "weld",
+      "simplify (meshopt, bounded error)",
+      "smooth normals (indexed)",
+      "quantize + EXT_meshopt_compression",
+      "sha256"
+    ],
+    "tools": {
+      "@gltf-transform/core": "4.5.0",
+      "meshoptimizer": "1.3.0"
+    },
+    "buildMs": 497
+  },
+  "limits": {
+    "maxInputBytes": 33554432,
+    "maxTriangles": 500000,
+    "maxAbsCoordinateMm": 10000,
+    "allowedExtensions": [
+      ".stl"
+    ]
+  }
+}
