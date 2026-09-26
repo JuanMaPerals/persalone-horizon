@@ -38,6 +38,8 @@ import kotlin.math.max
 class MainActivity : FlutterActivity() {
     companion object {
         private const val microphonePermissionRequestCode = 4101
+        private const val blePermissionRequestCode = 4102
+        private const val blePermissionChannelName = "persalone.ble/permissions"
         private const val inputChannelName = "persalone.audio/input"
         private const val inputEventsChannelName = "persalone.audio/input_events"
         private const val outputChannelName = "persalone.audio/output"
@@ -56,6 +58,7 @@ class MainActivity : FlutterActivity() {
     private var sttSink: EventChannel.EventSink? = null
     private var ttsSink: EventChannel.EventSink? = null
     private var pendingPermissionResult: MethodChannel.Result? = null
+    private var pendingBlePermissionResult: MethodChannel.Result? = null
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var captureThread: Thread? = null
@@ -155,6 +158,15 @@ class MainActivity : FlutterActivity() {
                     ttsSink = null
                 }
             })
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, blePermissionChannelName)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "status" -> result.success(BlePermissions.decide(Build.VERSION.SDK_INT, ::isPermissionGranted))
+                    "request" -> requestBlePermissions(result)
+                    else -> result.notImplemented()
+                }
+            }
+
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ttsChannelName)
             .setMethodCallHandler { call, result ->
                 when (call.method) {
@@ -186,6 +198,13 @@ class MainActivity : FlutterActivity() {
         grantResults: IntArray,
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == blePermissionRequestCode) {
+            // The platform state is the truth, not the dialog answer: a
+            // dismissed dialog (empty results) reads as denied.
+            pendingBlePermissionResult?.success(BlePermissions.decide(Build.VERSION.SDK_INT, ::isPermissionGranted))
+            pendingBlePermissionResult = null
+            return
+        }
         if (requestCode != microphonePermissionRequestCode) return
         val granted = grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED
         pendingPermissionResult?.success(granted)
@@ -200,8 +219,8 @@ class MainActivity : FlutterActivity() {
             result.success(true)
             return
         }
-        if (pendingPermissionResult != null) {
-            result.error("permission_in_flight", "A microphone permission request is already active.", null)
+        if (permissionRequestInFlight()) {
+            result.error("permission_in_flight", "Another runtime permission request is already active.", null)
             return
         }
         pendingPermissionResult = result
@@ -210,6 +229,35 @@ class MainActivity : FlutterActivity() {
             arrayOf(Manifest.permission.RECORD_AUDIO),
             microphonePermissionRequestCode,
         )
+    }
+
+    /**
+     * Android runs one runtime-permission request at a time and answers an
+     * overlapping one with empty results, which would read as a denial the
+     * person never gave. Microphone and Bluetooth therefore share this guard.
+     */
+    private fun permissionRequestInFlight(): Boolean =
+        pendingPermissionResult != null || pendingBlePermissionResult != null
+
+    private fun isPermissionGranted(permission: String): Boolean =
+        ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
+
+    /**
+     * Asks only for BLUETOOTH_SCAN and BLUETOOTH_CONNECT (Android 12+). Below
+     * that nothing is asked and the answer is a fail-closed decision.
+     */
+    private fun requestBlePermissions(result: MethodChannel.Result) {
+        val missing = BlePermissions.missing(Build.VERSION.SDK_INT, ::isPermissionGranted)
+        if (missing.isEmpty()) {
+            result.success(BlePermissions.decide(Build.VERSION.SDK_INT, ::isPermissionGranted))
+            return
+        }
+        if (permissionRequestInFlight()) {
+            result.error("permission_in_flight", "Another runtime permission request is already active.", null)
+            return
+        }
+        pendingBlePermissionResult = result
+        ActivityCompat.requestPermissions(this, missing.toTypedArray(), blePermissionRequestCode)
     }
 
     @Suppress("UNCHECKED_CAST")

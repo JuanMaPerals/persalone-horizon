@@ -1,5 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <!-- Halo captions over BLE, Android 12+ only. The scan never derives
+         location, so no location permission is declared or requested; on
+         Android 11 and older the Halo path fails closed (BlePermissions). -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <application
         android:label="persalone_mobile"
         android:name="${applicationName}"

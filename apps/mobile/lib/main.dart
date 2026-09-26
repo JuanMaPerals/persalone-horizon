@@ -8,6 +8,7 @@ import 'package:persalone_contracts/persalone_contracts.dart';
 import 'package:persalone_halo_adapter/persalone_halo_adapter.dart';
 import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
 
+import 'ble_permission_gate.dart';
 import 'halo_caption_path.dart';
 import 'live_stream_config.dart';
 
@@ -71,7 +72,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   /// carry a HALO_REAL label.
   static const bool _haloCaptions = bool.fromEnvironment('HORIZON_HALO_CAPTIONS');
   HaloCaptionPath? _haloPath;
-  String _haloStatus = 'Halo no conectado: subtítulos BLOCKED.';
+  String _haloStatus = 'Halo no conectado: subtítulos FAILED (deviceNotReady).';
 
   late final AndroidMicrophoneAdapter _microphone;
   late final AndroidSpeakerAdapter _speaker;
@@ -123,6 +124,8 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _haloPath = HaloCaptionPath.compose(
       enabled: _haloCaptions,
       transport: OfficialBrilliantHaloTransport.new,
+      // Bluetooth is only touched after BLUETOOTH_SCAN/CONNECT are granted.
+      permission: BlePermissionGate(MethodChannelBlePermissionBridge()).ensure,
     );
     _runtime = HorizonTranslationRuntime(
       input: _microphone,
@@ -256,10 +259,16 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       if (!mounted) return;
       setState(() => _haloStatus =
           'Halo conectado. Subtítulos PREPARED: confirmación del dispositivo, no observación humana.');
+    } on HaloPermissionDenied catch (denied) {
+      if (!mounted) return;
+      final List<String> missing = denied.result.missing;
+      setState(() => _haloStatus = 'Halo no conectado: permiso Bluetooth '
+          '${denied.result.reason}${missing.isEmpty ? '' : ' (${missing.join(', ')})'}. '
+          'Subtítulos BLOCKED; no se ha usado Bluetooth.');
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _haloStatus =
-          'Halo no conectado (${error.runtimeType}): subtítulos BLOCKED.');
+          'Halo no conectado (${error.runtimeType}): subtítulos FAILED (deviceNotReady).');
     }
   }
 

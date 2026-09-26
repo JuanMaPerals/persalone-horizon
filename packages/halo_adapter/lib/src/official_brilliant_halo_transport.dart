@@ -33,6 +33,11 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
   BrilliantDevice? _device;
   RxAudio? _rxAudio;
 
+  /// Set once a scan was requested from the Bluetooth stack. Stopping and
+  /// disposing never reach Bluetooth otherwise, so a path that was refused
+  /// its Bluetooth permission tears down without a single Bluetooth call.
+  bool _scanRequested = false;
+
   static const int _startListeningMsg = 0x30;
   static const int _stopListeningMsg = 0x31;
   static const int _startPlaybackMsg = 0x40;
@@ -48,6 +53,7 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
   Future<void> startDiscovery() async {
     await stopDiscovery();
     try {
+      _scanRequested = true;
       _scanSubscription = BrilliantBluetooth.scan().listen(
         (BrilliantScannedDevice scanned) {
           final String reconnectId = scanned.device.remoteId.str;
@@ -75,6 +81,8 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
   Future<void> stopDiscovery() async {
     await _scanSubscription?.cancel();
     _scanSubscription = null;
+    if (!_scanRequested) return;
+    _scanRequested = false;
     await BrilliantBluetooth.stopScan();
   }
 
