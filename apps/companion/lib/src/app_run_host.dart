@@ -144,7 +144,10 @@ final class AppRunHost {
     final AppRun run = _active(runId);
     return run._serial(() async {
       _ensureCurrent(run);
-      final ButtonOutcome o = await run.session.press(gesture);
+      final ButtonOutcome o = await run.session.press(
+        gesture,
+        isCurrent: () => _isCurrent(run),
+      );
       // Panic invalidates the generation immediately. Never publish a device
       // result that completed after that invalidation.
       _ensureCurrent(run);
@@ -232,8 +235,11 @@ final class AppRunHost {
     return run;
   }
 
+  bool _isCurrent(AppRun run) =>
+      run.generation == _generation && run.state == RunState.running;
+
   void _ensureCurrent(AppRun run) {
-    if (run.generation != _generation || run.state != RunState.running) {
+    if (!_isCurrent(run)) {
       throw const ApiError(409, 'runNotActive');
     }
   }
