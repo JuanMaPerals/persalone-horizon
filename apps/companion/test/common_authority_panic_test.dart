@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:persalone_contracts/persalone_contracts.dart';
 import 'package:persalone_horizon_companion/horizon_companion.dart';
 import 'package:test/test.dart';
 
@@ -39,9 +40,9 @@ void main() {
       final HelloDisplayTestRunner runner =
           HelloDisplayTestRunner(workspace, host);
       final List<Map<String, Object?>> events = <Map<String, Object?>>[];
-      final StreamSubscription<dynamic> sub =
-          host.events.events.listen((dynamic event) {
-        events.add((event.toJson() as Map).cast<String, Object?>());
+      final StreamSubscription<RuntimeEvent> sub =
+          host.events.events.listen((RuntimeEvent event) {
+        events.add(event.toJson());
       });
 
       try {
