@@ -344,7 +344,17 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
     }
   }
 
-  Future<HaloLuaResult> _displayText(String? text) async {
+  /// Shows page [page] (0-based) of [text] as laid out by the caption
+  /// composer, through the same bounded command path as
+  /// [HaloLuaQuery.displayText]. The result value reports the page actually
+  /// shown (`page:<k>/<N>`). Page navigation is driven by the host (e.g. a
+  /// button press reported by the device); no Lua is accepted from callers.
+  Future<HaloLuaResult> displayTextPage(String text, int page) async {
+    _ensureReady();
+    return _displayText(text, page: page);
+  }
+
+  Future<HaloLuaResult> _displayText(String? text, {int page = 0}) async {
     if (text == null) {
       throw const RuntimeError(
         RuntimeErrorCode.invalidContract,
@@ -353,9 +363,16 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
     }
     final HaloCaptionComposition composition =
         HaloCaptionComposer.compose(text);
+    final int pages = composition.isEmpty ? 1 : composition.pageCount;
+    if (page < 0 || page >= pages) {
+      throw const RuntimeError(
+        RuntimeErrorCode.invalidContract,
+        'Caption page is outside the composed pages.',
+      );
+    }
     final HaloDisplayCommand command = composition.isEmpty
         ? HaloBoundedDisplay.clear
-        : composition.command(0, powerOn: !_displayPoweredOn);
+        : composition.command(page, powerOn: !_displayPoweredOn);
     final int generation = _linkGeneration;
     try {
       await _transport.executeDisplayCommand(command);
@@ -378,7 +395,7 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
     if (!composition.isEmpty) _displayPoweredOn = true;
     return HaloLuaResult(
       query: HaloLuaQuery.displayText,
-      value: HaloCaptionComposition.resultValue(composition),
+      value: HaloCaptionComposition.resultValue(composition, page: page),
       sourceRevision: _sourceRevision,
       truthLabel: TruthLabel.prepared,
     );

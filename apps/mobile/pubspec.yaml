@@ -19,6 +19,8 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  persalone_halo_emulator:
+    path: ../../packages/halo_emulator
   lints: ^5.1.1
 flutter:
   uses-material-design: true

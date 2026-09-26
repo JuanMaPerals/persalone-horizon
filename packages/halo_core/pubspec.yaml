@@ -1,0 +1,13 @@
+name: persalone_halo_core
+description: Pure-Dart Halo core (bounded display, caption composer, device adapter, transport port). No Flutter, so hosts such as the Studio Companion can use it.
+version: 0.1.0
+publish_to: none
+environment:
+  sdk: ^3.6.0
+resolution: workspace
+dependencies:
+  persalone_contracts:
+    path: ../contracts
+dev_dependencies:
+  lints: ^5.1.1
+  test: ^1.25.15
