@@ -99,16 +99,26 @@ final class AppRunHost {
   AppRun? _leaseHolder;
   int _generation = 0;
 
+  /// Counts Panics only (starts also advance [_generation]), so a start can
+  /// tell a Panic from a newer start that superseded it.
+  int _panics = 0;
+
   EmulatorConfig get config => _config;
 
   AppRun get(String runId) =>
       _runs[Workspace.checkId(runId)] ?? (throw const ApiError(404, 'notFound'));
 
   Future<AppRun> start(String projectId) async {
+    // A Panic issued after this request, while the manifest loads or the
+    // previous run stops, cancels it: nothing requested before a Panic may
+    // start after it.
+    final int panicsAtRequest = _panics;
     final HorizonAppManifest manifest = await _workspace.loadManifest(projectId);
+    _ensureNoPanicSince(panicsAtRequest);
     // Exclusive lease: a new interactive run releases the previous device.
     final AppRun? previous = _leaseHolder;
     if (previous != null) await stop(previous.runId, reason: 'superseded');
+    _ensureNoPanicSince(panicsAtRequest);
     final int generation = ++_generation;
     final String runId = Workspace.newId('r');
     events.sessionState(runId, generation, RuntimeSessionState.preparing);
@@ -220,19 +230,28 @@ final class AppRunHost {
   }
 
   /// Emergency stop: invalidates the generation first (in-flight starts are
-  /// cancelled), then closes every run and clears its display.
+  /// cancelled), then closes every run and clears its display. It resolves
+  /// only once every run is closed, including runs a concurrent Stop or Panic
+  /// was already closing: a caller is never told "stopped" early.
   Future<Map<String, Object?>> panic() async {
-    _generation++;
+    // The generation this Panic invalidated up to, reported as its own even
+    // if a later Panic or start advances the counter meanwhile.
+    final int generation = ++_generation;
+    _panics++;
     events.diagnostic(LiveTranslationDiagnosticCode.panicExecuted, 'companion');
     final List<String> stopped = <String>[];
+    final List<Future<AppRun>> closing = <Future<AppRun>>[];
     for (final AppRun run in _runs.values.toList()) {
-      if (run.state == RunState.running) {
-        await stop(run.runId, reason: 'panic');
+      if (run.state == RunState.running || run.state == RunState.stopping) {
         stopped.add(run.runId);
+        // Every stop is requested before any is awaited, so all runs are
+        // invalidated at once; a run already stopping shares its close.
+        closing.add(stop(run.runId, reason: 'panic'));
       }
     }
     _leaseHolder = null;
-    return <String, Object?>{'stoppedRuns': stopped, 'generation': _generation};
+    await Future.wait(closing);
+    return <String, Object?>{'stoppedRuns': stopped, 'generation': generation};
   }
 
   Future<void> dispose() async {
@@ -251,6 +270,12 @@ final class AppRunHost {
   void _ensureCurrent(AppRun run) {
     if (!_isCurrent(run)) {
       throw const ApiError(409, 'runNotActive');
+    }
+  }
+
+  void _ensureNoPanicSince(int panics) {
+    if (_panics != panics) {
+      throw const ApiError(409, 'runCancelledByPanic');
     }
   }
 }
