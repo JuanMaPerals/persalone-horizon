@@ -1,10 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:persalone_contracts/persalone_contracts.dart';
 import 'package:persalone_halo_adapter/persalone_halo_adapter.dart';
 import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
+import 'package:persalone_mobile/live_stream_config.dart';
+import 'package:persalone_mobile/studio_remote_control.dart';
 
 import 'emulator_halo_transport.dart';
 
@@ -213,6 +216,99 @@ void main() {
     expect(r.transport.sentDisplayCommands.last, contains('NEW TURN'));
     expect(r.transport.sentDisplayCommands.where((c) => c.contains('OLD TURN')),
         hasLength(1));
+  });
+
+  // Studio -> authenticated loopback channel -> RemoteControlGateway -> the
+  // same controller the phone's buttons use. The token is read from the
+  // app-private file, as an operator does with `adb run-as`.
+  group('remote over the authenticated channel', () {
+    late StudioRemoteControl remote;
+    late Directory tokens;
+    late String token;
+
+    setUp(() async {
+      tokens = Directory.systemTemp.createTempSync('control-e2e-');
+      remote = await StudioRemoteControl.start(r.control,
+          config: const LiveStreamConfig(port: 0, allowedOrigins: <String>{}),
+          tokenDirectory: tokens);
+      token = remote.tokenFile.readAsStringSync();
+    });
+
+    tearDown(() async {
+      await remote.close();
+      tokens.deleteSync(recursive: true);
+    });
+
+    Future<(int, Map<String, Object?>)> send(String action,
+        {String? bearer, int? generation}) async {
+      final HttpClient client = HttpClient();
+      try {
+        final HttpClientRequest request = await client.postUrl(
+            remote.server.uri.replace(path: '/v1/control/commands'));
+        request.headers
+          ..contentType = ContentType.json
+          ..set('authorization', 'Bearer ${bearer ?? token}');
+        request.write(jsonEncode(<String, Object?>{
+          'schemaVersion': 1,
+          'commandId': 'studio-${r.id()}',
+          'issuedAt': DateTime.now().microsecondsSinceEpoch,
+          'sessionGeneration': generation ?? r.control.sessionGeneration,
+          'action': action,
+        }));
+        final HttpClientResponse response = await request.close();
+        final Object? body = jsonDecode(await utf8.decodeStream(response));
+        return (
+          response.statusCode,
+          (body! as Map<Object?, Object?>).cast<String, Object?>()
+        );
+      } finally {
+        client.close(force: true);
+      }
+    }
+
+    test('remote PANIC: caption removed, mic and TTS stopped', skip: _skip,
+        () async {
+      await r.startListening();
+      r.translator.outputs[1] = 'REMOTE PANIC';
+      r.finalTurn(1);
+      await r.until(() => r.deliveries.length == 1);
+      expect((await r.frame()).lit, greaterThan(0));
+
+      final (int status, Map<String, Object?> body) = await send('panic');
+      expect(status, HttpStatus.ok);
+      expect(body['resultCode'], 'accepted');
+      expect(r.input.running, isFalse);
+      expect(r.tts.stopCalls, greaterThan(0));
+      expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
+      expect((await r.frame('remote_panic')).lit, 0);
+    });
+
+    test('remote STOP ends the session; a stale generation is refused',
+        skip: _skip, () async {
+      await r.startListening();
+      final int first = r.control.sessionGeneration;
+      expect((await send('stop')).$2['resultCode'], 'accepted');
+      expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
+
+      await r.startListening();
+      expect((await send('stop', generation: first)).$2['resultCode'],
+          'staleGeneration',
+          reason: 'a STOP aimed at the previous session never ends this one');
+      expect(r.control.activeSessionId, isNotNull);
+    });
+
+    test('remote START is denied and a wrong token changes nothing',
+        skip: _skip, () async {
+      expect((await send('start')).$2['resultCode'], 'deniedByPolicy');
+      expect(r.control.activeSessionId, isNull);
+
+      await r.startListening();
+      final (int status, _) = await send('panic', bearer: 'not-the-token');
+      expect(status, HttpStatus.unauthorized);
+      expect(r.input.running, isTrue, reason: 'no unauthenticated Panic');
+      expect(
+          (await send('deviceDisconnect')).$2['resultCode'], 'deniedByPolicy');
+    });
   });
 }
 
