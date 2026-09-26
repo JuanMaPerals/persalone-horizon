@@ -11,7 +11,8 @@ Loop under test: **mic → STT → translation → TTS → (speaker) → mic**.
 | ECHO_RISK (self-echo on the phone speaker path) | BLOCKED_HARDWARE — detection ready, not observed |
 | AEC (`VOICE_COMMUNICATION` + AcousticEchoCanceler) | BLOCKED_HARDWARE — selectable, availability unknown per device |
 | `speechEndToFinal` and every other latency on device | BLOCKED_HARDWARE — only EMULATED/SIMULATED numbers exist |
-| Kotlin / JVM | VERIFIED in CI (`android-apk` job compiles Kotlin and runs `ValidationSupportTest`) |
+| `speechQueuedToAudible`, `speechEndToAudible` | BLOCKED_HARDWARE — measurable path built; UNKNOWN until a phone reports it |
+| Kotlin / JVM | VERIFIED in CI (`android-apk` job compiles Kotlin and runs `ValidationSupportTest`, `TtsPresentationTest`) |
 
 ## What the pack adds
 
@@ -24,6 +25,31 @@ Loop under test: **mic → STT → translation → TTS → (speaker) → mic**.
 | Self-echo suspicion | runtime `selfEchoSuspected` diagnostic (`duringTts` / `afterTts`, `.textOverlap`) | `speech_boundary_test`, validation golden |
 | Redacted logging | `ValidationRecorder` (redacted v1 NDJSON + coded sidecar) | `validation_recorder_test` |
 | Offline analysis | Engineering Console → "load an offline .ndjson file" | Console tests on runtime-produced goldens |
+| Observable speech output (`speechQueuedToAudible`, `speechEndToAudible`) | `MeasuredTtsOutput` + `TtsPresentation` → provider `presentations` → runtime latency | `TtsPresentationTest` (JVM, CI), provider tests, `turn_latency_test`, Console `latency.test.ts` |
+
+### What "audible" means here
+
+The TTS engine synthesizes into `/dev/null` (API 30+, nothing stored) and
+streams the audio to the app (`onAudioAvailable`), which plays it through its
+own `AudioTrack`. The boundaries, all on CLOCK_MONOTONIC (the clock of
+`System.nanoTime`, `AudioRecord` timestamps and `onEndOfSpeech`):
+
+| Boundary | Source |
+|---|---|
+| queued | `System.nanoTime` when the utterance is handed to the engine |
+| first frame presented | `AudioTrack.getTimestamp`, interpolated back to frame 0 |
+| audible frame presented | same, for the first frame above about -40 dBFS (leading silence skipped) |
+| playback completed | the timestamp covers the last written frame (closes the self-echo window) |
+
+A frame's time is only taken from a timestamp that already covers it; a frame
+not yet presented is never predicted. **Presented is what AudioTrack reports
+for the output path: it is not acoustic arrival and not what a person heard.**
+An acoustic reference recording is still needed to bound the difference.
+
+If the engine does not stream audio to the app (probed at every prepare), it
+plays the utterance itself, `ttsMeasuredOutput` is `false` in the sidecar with
+`ttsOutputReason`, and both audible stages stay UNKNOWN. Stopped, stalled or
+malformed presentations are also UNKNOWN, never estimated.
 
 Privacy: the recorder writes only the redacted `horizon.runtime-event.v1`
 stream (no audio, transcript or translation text) and a sidecar that accepts
@@ -113,13 +139,62 @@ The sidecar must show the source actually used (`audioSource`) and whether
 the echo canceller was available and enabled (`aecAvailable`, `aecEnabled`).
 If `audioSource` does not match the variant, discard the run.
 
+It also shows the speech output path (`ttsMeasuredOutput`, `ttsOutputReason`).
+With `false`, the audible stages must read UNKNOWN; any audible sample in such
+a run means the log is wrong and the run is discarded.
+
+## 4b. Optional: watch the run live in Studio
+
+Validation builds also serve the same redacted stream, read-only, on the
+phone's **loopback** at port 47800 (logcat prints `HORIZON_LIVE_STREAM`). The
+computer reaches it only through adb, so nothing listens on the LAN:
+
+```bash
+adb forward tcp:47800 tcp:47800
+```
+
+```bash
+cd apps/engineering-console && corepack pnpm@10 dev --host 127.0.0.1
+```
+
+Open Studio at `http://127.0.0.1:5173`, Runtime panel, keep the default URL
+`http://127.0.0.1:47800/v1/runtime-events`, connect. Only the origins
+`http://127.0.0.1:5173` and `http://localhost:5173` may read it (build-time
+`HORIZON_STUDIO_ORIGINS` changes the list; `HORIZON_LIVE_STREAM_PORT` the
+port). Remove the forward afterwards:
+
+```bash
+adb forward --remove tcp:47800
+```
+
+Studio can only **watch**. Stop and Panic stay on the phone: the remote
+control gateway has no authenticated transport yet, and adding one is a
+security-boundary decision (BLOCKED_AUTHORIZATION).
+
+## 4c. Halo captions (only with a physical Halo)
+
+The default APK composes **no** caption output, so no run carries a HALO_REAL
+label. A build for a Halo session enables the Brilliant BLE caption path:
+
+```bash
+cd apps/mobile && flutter build apk --debug --dart-define=HORIZON_VALIDATION_LOG=true --dart-define=HORIZON_HALO_CAPTIONS=true
+```
+
+The app then shows "Conectar Halo". Delivered captions are at most PREPARED
+(device acknowledgement); what the wearer saw is recorded by hand. Known
+blocker: the app does not yet declare or request `BLUETOOTH_SCAN` /
+`BLUETOOTH_CONNECT`, so discovery is expected to fail on Android 12+ until
+that permission change is authorized. Captions are then BLOCKED, never
+faked, and translation and speech continue.
+
 ## 5. Read the results
 
 Load each `.ndjson` in the Engineering Console (Runtime panel → offline file).
 It shows, per variant:
 
-- `speechEndToFinal`, `finalToTranslation`, `finalToSpeechQueued`: latest /
-  p50 (5+ samples) / p95 (20+ samples);
+- `speechEndToFinal`, `finalToTranslation`, `finalToSpeechQueued`,
+  `speechQueuedToAudible`, `speechEndToAudible`: latest / p50 (5+ samples) /
+  p95 (20+ samples);
 - "Self-echo suspected" (and how many with text overlap);
 - DEGRADED if any line was rejected or a sequence is missing.
 

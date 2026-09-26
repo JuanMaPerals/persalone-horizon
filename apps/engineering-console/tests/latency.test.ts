@@ -48,6 +48,21 @@ describe('latency from the G5 runtime golden', () => {
     expect(latency.finalToTranslation.environment).toBe('UNKNOWN');
   });
 
+  it('audible-output stages stay UNKNOWN until the device measured them', () => {
+    const { latency } = reduceRuntimeEvents(parseRuntimeEventStream(golden('runtime-events.latency.v1.ndjson')));
+    expect(latency.speechQueuedToAudible).toMatchObject({ samples: 0, p50Micros: 'UNKNOWN', truth: 'UNKNOWN' });
+    expect(latency.speechEndToAudible).toMatchObject({ samples: 0, p50Micros: 'UNKNOWN', truth: 'UNKNOWN' });
+  });
+
+  it('measured audible-output samples are accepted without an environment', () => {
+    const lines = [1, 2].map((seq) => sample(seq, 400_000 + seq, { stage: 'speechQueuedToAudible', environment: null }));
+    const stream = parseRuntimeEventStream([...lines, sample(3, 2_000_000, { stage: 'speechEndToAudible', environment: null })].join('\n'));
+    expect(stream.rejected).toEqual([]);
+    const { latency } = reduceRuntimeEvents(stream);
+    expect(latency.speechQueuedToAudible).toMatchObject({ samples: 2, latestMicros: 400_002, p50Micros: 'INSUFFICIENT', environment: 'UNKNOWN', truth: 'MEASURED' });
+    expect(latency.speechEndToAudible.samples).toBe(1);
+  });
+
   it('older goldens still parse and carry latency lines', () => {
     for (const name of ['runtime-events.stop.v1.ndjson', 'runtime-events.failure.v1.ndjson']) {
       const stream = parseRuntimeEventStream(golden(name));
@@ -102,7 +117,7 @@ describe('hostile latency events are rejected', () => {
     ['text field', { text: 'hola' }],
     ['non-MEASURED evidence', { truth: 'PREPARED' }],
     ['simulated evidence', { truth: 'SIMULATED' }],
-    ['unobservable stage', { stage: 'speechQueuedToAudible' }],
+    ['unknown stage', { stage: 'speechQueuedToHeard' }],
     ['negative interval', { micros: -1 }],
     ['fractional interval', { micros: 1.5 }],
     ['absurd interval', { micros: MAX_LATENCY_MICROS + 1 }],

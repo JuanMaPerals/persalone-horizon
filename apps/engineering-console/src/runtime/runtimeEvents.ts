@@ -9,12 +9,32 @@ export type Truth = 'SIMULATED' | 'PREPARED' | 'MEASURED' | 'BLOCKED' | 'FAILED'
 export type SessionState = 'idle' | 'preparing' | 'listening' | 'stopping' | 'stopped' | 'failed' | 'disposed';
 export type CaptionStatus = 'delivered' | 'blocked' | 'failed';
 export type DeviceState = 'idle' | 'discovering' | 'connecting' | 'ready' | 'disconnecting' | 'disconnected' | 'failed';
-/** Turn intervals the runtime measures on its own monotonic clock. */
-export type LatencyStage = 'speechEndToFinal' | 'finalToTranslation' | 'translationToCaption' | 'finalToCaption' | 'finalToSpeechQueued';
-/** Intervals no event can prove today; always rendered UNKNOWN. */
-export const UNOBSERVABLE_LATENCY_STAGES = ['speechQueuedToAudible'] as const;
-/** speechEndToFinal has samples only when the STT provider reports end of speech (Android physical runs). */
-export const LATENCY_STAGES: readonly LatencyStage[] = ['speechEndToFinal', 'finalToTranslation', 'translationToCaption', 'finalToCaption', 'finalToSpeechQueued'];
+/**
+ * Turn intervals, each closed on one monotonic clock: the runtime's, or a
+ * provider's for speechEndToFinal and the audible stages.
+ */
+export type LatencyStage =
+  | 'speechEndToFinal'
+  | 'finalToTranslation'
+  | 'translationToCaption'
+  | 'finalToCaption'
+  | 'finalToSpeechQueued'
+  | 'speechQueuedToAudible'
+  | 'speechEndToAudible';
+/**
+ * speechEndToFinal has samples only when the STT provider reports end of speech (Android physical runs).
+ * speechQueuedToAudible / speechEndToAudible have samples only when the synthesizer observed its own
+ * output presenting the first non-silent frame (platform presentation, not acoustic); otherwise UNKNOWN.
+ */
+export const LATENCY_STAGES: readonly LatencyStage[] = [
+  'speechEndToFinal',
+  'finalToTranslation',
+  'translationToCaption',
+  'finalToCaption',
+  'finalToSpeechQueued',
+  'speechQueuedToAudible',
+  'speechEndToAudible',
+];
 /** Minimum samples before a percentile is shown instead of INSUFFICIENT. */
 export const MIN_SAMPLES_P50 = 5;
 export const MIN_SAMPLES_P95 = 20;
@@ -296,6 +316,8 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
     translationToCaption: [],
     finalToCaption: [],
     finalToSpeechQueued: [],
+    speechQueuedToAudible: [],
+    speechEndToAudible: [],
   };
 
   const ordered = [...stream.events].sort((a, b) => a.seq - b.seq);
@@ -359,6 +381,8 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
       translationToCaption: latencyStat(latencyEvents.translationToCaption),
       finalToCaption: latencyStat(latencyEvents.finalToCaption),
       finalToSpeechQueued: latencyStat(latencyEvents.finalToSpeechQueued),
+      speechQueuedToAudible: latencyStat(latencyEvents.speechQueuedToAudible),
+      speechEndToAudible: latencyStat(latencyEvents.speechEndToAudible),
     },
   };
 }

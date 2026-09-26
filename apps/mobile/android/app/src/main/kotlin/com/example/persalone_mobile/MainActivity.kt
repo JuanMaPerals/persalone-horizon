@@ -74,6 +74,7 @@ class MainActivity : FlutterActivity() {
     private var translatorSourceLocale: String? = null
     private var translatorTargetLocale: String? = null
     private var textToSpeech: TextToSpeech? = null
+    private var ttsOutput: MeasuredTtsOutput? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -171,6 +172,8 @@ class MainActivity : FlutterActivity() {
         stopSttInternal()
         translator?.close()
         translator = null
+        ttsOutput?.release(textToSpeech)
+        ttsOutput = null
         textToSpeech?.stop()
         textToSpeech?.shutdown()
         textToSpeech = null
@@ -684,6 +687,8 @@ class MainActivity : FlutterActivity() {
             result.error("invalid_tts_locale", "TTS requires a target locale.", null)
             return
         }
+        ttsOutput?.release(textToSpeech)
+        ttsOutput = null
         textToSpeech?.shutdown()
         textToSpeech = TextToSpeech(this) { status ->
             if (status != TextToSpeech.SUCCESS) {
@@ -701,22 +706,14 @@ class MainActivity : FlutterActivity() {
                 result.success(mapOf("ready" to false, "reason" to "tts_locale_set_failed"))
                 return@TextToSpeech
             }
-            tts.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-                override fun onStart(utteranceId: String) {
-                    emitTtsEvent(mapOf("type" to "started", "utteranceId" to utteranceId))
-                }
-                override fun onDone(utteranceId: String) {
-                    emitTtsEvent(mapOf("type" to "completed", "utteranceId" to utteranceId))
-                }
-                @Deprecated("Deprecated in Java")
-                override fun onError(utteranceId: String) {
-                    emitTtsEvent(mapOf("type" to "error", "utteranceId" to utteranceId))
-                }
-                override fun onError(utteranceId: String, errorCode: Int) {
-                    emitTtsEvent(mapOf("type" to "error", "utteranceId" to utteranceId, "code" to "tts_$errorCode"))
-                }
-            })
-            result.success(mapOf("ready" to true))
+            val output = MeasuredTtsOutput(::emitTtsEvent)
+            ttsOutput = output
+            tts.setOnUtteranceProgressListener(output.listener)
+            // Selects the observable AudioTrack path when the engine streams
+            // audio to the app; the reason is reported either way.
+            output.prepare(tts) { measured, reason ->
+                result.success(mapOf("ready" to true, "measuredOutput" to measured, "outputReason" to reason))
+            }
         }
     }
 
@@ -725,13 +722,14 @@ class MainActivity : FlutterActivity() {
         val arguments = call.arguments as? Map<String, Any?> ?: emptyMap()
         val text = arguments["text"] as? String
         val utteranceId = arguments["utteranceId"] as? String
+        val sequence = (arguments["sequence"] as? Number)?.toInt()
         val tts = textToSpeech
-        if (text.isNullOrBlank() || utteranceId.isNullOrBlank() || tts == null) {
+        val output = ttsOutput
+        if (text.isNullOrBlank() || utteranceId.isNullOrBlank() || tts == null || output == null) {
             result.error("tts_not_ready", "Android TTS is not ready for this session.", null)
             return
         }
-        val status = tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
-        if (status != TextToSpeech.SUCCESS) {
+        if (!output.speak(tts, text, utteranceId, sequence)) {
             result.error("tts_speak_failed", "Android TTS rejected the utterance.", null)
             return
         }
@@ -739,7 +737,8 @@ class MainActivity : FlutterActivity() {
     }
 
     private fun stopTts(result: MethodChannel.Result) {
-        textToSpeech?.stop()
+        val output = ttsOutput
+        if (output != null) output.stop(textToSpeech) else textToSpeech?.stop()
         result.success(null)
     }
 

@@ -13,19 +13,21 @@ import 'caption.dart';
 /// - [speechEndToFinal]: recognizer end of speech -> final transcript, both
 ///   reported by the STT provider on its own monotonic clock; emitted only
 ///   when the provider supplies the end-of-speech time.
+/// - [speechQueuedToAudible]: the synthesizer accepted the utterance -> the
+///   platform output presented its first non-silent frame, both ends on the
+///   synthesizer's monotonic clock (see [SpeechPresentation]). It is the
+///   platform presentation time, not acoustic arrival or human perception;
+///   emitted only when the provider measured it.
+/// - [speechEndToAudible]: recognizer end of speech -> that same presentation;
+///   emitted only when the STT and TTS providers declare one clock domain.
 enum TurnLatencyStage {
   speechEndToFinal,
   finalToTranslation,
   translationToCaption,
   finalToCaption,
   finalToSpeechQueued,
-}
-
-/// Intervals the runtime cannot observe on its clock. They stay UNKNOWN until
-/// a provider exposes the endpoint on a shared monotonic timebase.
-enum UnobservableLatencyStage {
-  /// Utterance queued -> first audible sample (platform playback).
   speechQueuedToAudible,
+  speechEndToAudible,
 }
 
 /// One measured interval. It carries no text, audio or identifiers beyond the

@@ -84,6 +84,43 @@ void main() {
       expect(r.tts.spoken.map((s) => s.sequence), <int>[1]);
     });
 
+    test('during a caption render: nothing is spoken and the display clears',
+        () async {
+      await r.startListening();
+      r.captions.showGate = Completer<void>();
+      r.finalTurn(1);
+      await r.until(() => r.captions.shown.length == 1);
+      final int clearsBefore = r.captions.cleared.length;
+
+      await r.panic();
+      r.captions.showGate!.complete();
+      await r.settle();
+
+      expect(r.tts.spoken, isEmpty,
+          reason: 'a render finishing after Panic must not lead to speech');
+      expect(r.captions.cleared.length, greaterThan(clearsBefore),
+          reason: 'the late render is cleared again, not left on the HUD');
+      expect(r.codes,
+          contains(LiveTranslationDiagnosticCode.staleCallbackDiscarded));
+    });
+
+    test('invalidation is synchronous: work arriving before cleanup is stale',
+        () async {
+      await r.startListening();
+      r.stt.stopGate = Completer<void>();
+      // Not awaited: Panic runs synchronously up to its first await.
+      final Future<CommandResult> panic = r.panic();
+      await r.until(() => r.stt.stopCalls > 0);
+      // Cleanup is still blocked on STT; a final turn lands meanwhile.
+      r.finalTurn(5);
+      await r.settle();
+      expect(r.translator.started, 0);
+      expect(r.tts.spoken, isEmpty);
+      r.stt.stopGate!.complete();
+      expect((await panic).status, CommandStatus.accepted);
+      expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
+    });
+
     test('from idle and after stop it is still accepted and harmless',
         () async {
       expect((await r.panic()).status, CommandStatus.accepted);
@@ -461,6 +498,9 @@ final class _Stt implements StreamingSttProvider {
   bool throwOnStop = false;
   int stopCalls = 0;
 
+  /// Holds STT teardown in flight (a platform recognizer slow to cancel).
+  Completer<void>? stopGate;
+
   @override
   String get providerId => 'ctl-stt';
   @override
@@ -479,6 +519,7 @@ final class _Stt implements StreamingSttProvider {
   @override
   Future<void> stop() async {
     stopCalls++;
+    await stopGate?.future;
     if (throwOnStop) throw StateError('stt stop failed');
   }
 
@@ -550,6 +591,9 @@ final class _Captions implements CaptionOutputAdapter {
   final List<String> cleared = <String>[];
   bool throwOnClear = false;
 
+  /// Holds a display render in flight (a device still drawing).
+  Completer<void>? showGate;
+
   @override
   String get adapterId => 'ctl-captions';
   @override
@@ -557,6 +601,7 @@ final class _Captions implements CaptionOutputAdapter {
   @override
   Future<CaptionDelivery> show(CaptionUpdate update) async {
     shown.add(update.sequence);
+    await showGate?.future;
     return CaptionDelivery(
       session: update.session,
       sequence: update.sequence,

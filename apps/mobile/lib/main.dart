@@ -5,7 +5,11 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:persalone_audio_adapters/persalone_audio_adapters.dart';
 import 'package:persalone_contracts/persalone_contracts.dart';
+import 'package:persalone_halo_adapter/persalone_halo_adapter.dart';
 import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
+
+import 'halo_caption_path.dart';
+import 'live_stream_config.dart';
 
 void main() {
   runApp(const PersalOneApp());
@@ -50,6 +54,24 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   RuntimeEventStream? _validationEvents;
   ValidationRecorder? _validationRecorder;
   StreamSubscription<AndroidCaptureConfig>? _captureConfigSubscription;
+  StreamSubscription<ProviderSnapshot>? _ttsOutputSubscription;
+
+  /// Validation builds also serve that same redacted stream, read-only, on
+  /// the phone's loopback for Studio (`adb forward tcp:47800 tcp:47800`).
+  static const int _liveStreamPort = int.fromEnvironment(
+      'HORIZON_LIVE_STREAM_PORT',
+      defaultValue: LiveStreamConfig.defaultPort);
+  static const String _studioOrigins = String.fromEnvironment(
+      'HORIZON_STUDIO_ORIGINS',
+      defaultValue: LiveStreamConfig.defaultOrigins);
+  RuntimeEventServer? _liveServer;
+
+  /// Captions to a physical Halo over the Brilliant BLE transport. Off unless
+  /// a build sets `HORIZON_HALO_CAPTIONS=true`, so runs without a Halo never
+  /// carry a HALO_REAL label.
+  static const bool _haloCaptions = bool.fromEnvironment('HORIZON_HALO_CAPTIONS');
+  HaloCaptionPath? _haloPath;
+  String _haloStatus = 'Halo no conectado: subtítulos BLOCKED.';
 
   late final AndroidMicrophoneAdapter _microphone;
   late final AndroidSpeakerAdapter _speaker;
@@ -98,14 +120,22 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _stt = AndroidSpeechRecognizerProvider(bridge: translationBridge);
     _translator = MlKitOnDeviceTranslatorProvider(bridge: translationBridge);
     _tts = AndroidTextToSpeechProvider(bridge: translationBridge);
+    _haloPath = HaloCaptionPath.compose(
+      enabled: _haloCaptions,
+      transport: OfficialBrilliantHaloTransport.new,
+    );
     _runtime = HorizonTranslationRuntime(
       input: _microphone,
       stt: _stt,
       translator: _translator,
       synthesizer: _tts,
+      captions: _haloPath?.captions,
     );
     if (widget.control == null) {
-      _ownedController = HorizonRuntimeController(runtime: _runtime);
+      _ownedController = HorizonRuntimeController(
+        runtime: _runtime,
+        device: _haloPath?.device,
+      );
     }
     _control = widget.control ?? _ownedController!;
     _frameSubscription = _microphone.frames.listen(_collectInputFrame);
@@ -139,6 +169,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _runtimeDiagnosticSubscription?.cancel();
     _translationSnapshotSubscription?.cancel();
     _captureConfigSubscription?.cancel();
+    _ttsOutputSubscription?.cancel();
+    _liveServer?.close();
+    _haloPath?.dispose();
     _validationRecorder?.close();
     _validationEvents?.close();
     _ownedController?.dispose();
@@ -149,8 +182,14 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   }
 
   Future<void> _openValidationLog() async {
-    final RuntimeEventStream events = RuntimeEventStream(_runtime);
+    final HaloCaptionPath? halo = _haloPath;
+    final RuntimeEventStream events = RuntimeEventStream(
+      _runtime,
+      deviceSnapshots: halo?.device.snapshots,
+      deviceEnvironment: halo?.environment ?? ExecutionEnvironment.simulated,
+    );
     _validationEvents = events;
+    unawaited(_serveLiveStream(events));
     final ValidationRecorder recorder;
     try {
       recorder = await ValidationRecorder.open(
@@ -169,6 +208,59 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _captureConfigSubscription = _microphone.captureConfigs.listen(
       (AndroidCaptureConfig config) => recorder.updateMeta(config.toJson()),
     );
+    // Which speech output path this run used: the audible-latency samples
+    // exist only when it is the observable AudioTrack path.
+    _ttsOutputSubscription = _tts.snapshots.listen((ProviderSnapshot snapshot) {
+      final bool? measured = _tts.measuredOutput;
+      if (snapshot.readiness != ProviderReadiness.ready || measured == null) {
+        return;
+      }
+      final String? reason = _tts.outputReason;
+      recorder.updateMeta(<String, Object>{
+        'ttsMeasuredOutput': measured,
+        if (reason != null && RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(reason))
+          'ttsOutputReason': reason,
+      });
+    });
+  }
+
+  /// Loopback only (RuntimeEventServer refuses any other address). A failure
+  /// is logged as unavailable, never hidden, and does not stop the recorder.
+  Future<void> _serveLiveStream(RuntimeEventStream events) async {
+    try {
+      final LiveStreamConfig config = LiveStreamConfig.parse(
+          port: _liveStreamPort, origins: _studioOrigins);
+      final RuntimeEventServer server = await RuntimeEventServer.start(
+        events.events,
+        port: config.port,
+        allowedOrigins: config.allowedOrigins,
+      );
+      if (!mounted) {
+        await server.close();
+        return;
+      }
+      _liveServer = server;
+      // Only the loopback URL is logged (for adb forward), never content.
+      debugPrint('HORIZON_LIVE_STREAM ${server.uri}');
+    } on Object catch (error) {
+      debugPrint('HORIZON_LIVE_STREAM unavailable: ${error.runtimeType}');
+    }
+  }
+
+  Future<void> _connectHalo() async {
+    final HaloCaptionPath? path = _haloPath;
+    if (path == null) return;
+    setState(() => _haloStatus = 'Buscando Halo por BLE…');
+    try {
+      await path.connectFirst();
+      if (!mounted) return;
+      setState(() => _haloStatus =
+          'Halo conectado. Subtítulos PREPARED: confirmación del dispositivo, no observación humana.');
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() => _haloStatus =
+          'Halo no conectado (${error.runtimeType}): subtítulos BLOCKED.');
+    }
   }
 
   Future<void> _requestPermission() async {
@@ -634,6 +726,14 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
                 _translation.isEmpty ? 'Sin traducción final.' : _translation,
           ),
           Text('Callbacks obsoletos descartados: $_staleCallbacks'),
+          if (_haloPath != null) ...<Widget>[
+            const SizedBox(height: 16),
+            _EvidenceCard(title: 'Subtítulos en Halo', value: _haloStatus),
+            ElevatedButton(
+              onPressed: _connectHalo,
+              child: const Text('Conectar Halo'),
+            ),
+          ],
           const SizedBox(height: 20),
           const Text(
             'Validación pendiente: en un dispositivo Android físico, verifica reconocimiento compatible con entrada PCM, disponibilidad y descarga del modelo local, voz TTS en el locale destino, barge-in y audibilidad. Registra dispositivo, versión Android, ruta de audio, fecha y observaciones reproducibles. La UI no cambia truth labels por sí sola.',

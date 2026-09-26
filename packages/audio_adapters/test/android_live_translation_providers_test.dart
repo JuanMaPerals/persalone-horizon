@@ -224,6 +224,195 @@ void main() {
         ),
       );
       expect(bridge.lastUtteranceId, '7-9');
+      expect(bridge.lastSequence, 9);
+    });
+
+    TranslationSegment segment(TranslationSession session, int sequence) =>
+        TranslationSegment(
+          session: session,
+          sequence: sequence,
+          sourceText: 'private source',
+          translatedText: 'private target',
+          observedAtMicros: 1,
+          truthLabel: TruthLabel.simulated,
+        );
+
+    test('declares the Android monotonic clock shared with the recognizer',
+        () {
+      final bridge = _FakeLiveTranslationBridge();
+      final tts = AndroidTextToSpeechProvider(bridge: bridge);
+      final stt = AndroidSpeechRecognizerProvider(bridge: bridge);
+      addTearDown(tts.dispose);
+      addTearDown(stt.dispose);
+      expect(tts.monotonicClockDomain, 'android.clock_monotonic');
+      expect(tts.monotonicClockDomain, stt.monotonicClockDomain);
+    });
+
+    test('reports the selected output path from prepare', () async {
+      final measured = AndroidTextToSpeechProvider(
+          bridge: _FakeLiveTranslationBridge());
+      final engine = AndroidTextToSpeechProvider(
+          bridge: _FakeLiveTranslationBridge(measuredOutput: false));
+      addTearDown(measured.dispose);
+      addTearDown(engine.dispose);
+      await measured.prepare(_config());
+      await engine.prepare(_config());
+      expect(measured.measuredOutput, isTrue);
+      expect(engine.measuredOutput, isFalse);
+      expect(engine.outputReason, 'noStreamedAudio');
+    });
+
+    test('maps a native presentation to the spoken segment, without text',
+        () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config);
+      final reports = <SpeechPresentation>[];
+      provider.presentations.listen(reports.add);
+
+      await provider.speak(segment(config.session, 9));
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presented',
+        'utteranceId': '7-9',
+        'queuedAtMicros': 1000,
+        'firstFramePresentedAtMicros': 1200,
+        'audiblePresentedAtMicros': 1350,
+        'sampleRateHz': 24000,
+      });
+      // A second report for the same utterance is ignored.
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presented',
+        'utteranceId': '7-9',
+        'queuedAtMicros': 1000,
+        'firstFramePresentedAtMicros': 1200,
+      });
+      await pumpEventQueue();
+
+      expect(reports, hasLength(1));
+      final report = reports.single;
+      expect(report.status, SpeechPresentationStatus.presented);
+      expect(report.sequence, 9);
+      expect(report.session.streamEpoch, 7);
+      expect(report.queuedAtMicros, 1000);
+      expect(report.firstFramePresentedAtMicros, 1200);
+      expect(report.audiblePresentedAtMicros, 1350);
+    });
+
+    test('an all-silent utterance is presented without an audible time',
+        () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config);
+      final reports = <SpeechPresentation>[];
+      provider.presentations.listen(reports.add);
+
+      await provider.speak(segment(config.session, 2));
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presented',
+        'utteranceId': '7-2',
+        'queuedAtMicros': 1000,
+        'firstFramePresentedAtMicros': 1200,
+      });
+      await pumpEventQueue();
+      expect(reports.single.status, SpeechPresentationStatus.presented);
+      expect(reports.single.audiblePresentedAtMicros, isNull);
+    });
+
+    test('refuses non-causal or non-integer times instead of repairing them',
+        () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config);
+      final reports = <SpeechPresentation>[];
+      provider.presentations.listen(reports.add);
+
+      final List<Map<Object?, Object?>> hostile = <Map<Object?, Object?>>[
+        {'firstFramePresentedAtMicros': 900, 'queuedAtMicros': 1000},
+        {
+          'queuedAtMicros': 1000,
+          'firstFramePresentedAtMicros': 1200,
+          'audiblePresentedAtMicros': 1100,
+        },
+        {'queuedAtMicros': 1000.5, 'firstFramePresentedAtMicros': 1200},
+        {'queuedAtMicros': 1000},
+      ];
+      for (int i = 0; i < hostile.length; i++) {
+        await provider.speak(segment(config.session, 20 + i));
+        bridge.ttsController.add(<Object?, Object?>{
+          'type': 'presented',
+          'utteranceId': '7-${20 + i}',
+          ...hostile[i],
+        });
+      }
+      await pumpEventQueue();
+
+      expect(reports, hasLength(hostile.length));
+      for (final report in reports) {
+        expect(report.status, SpeechPresentationStatus.unavailable);
+        expect(report.reason, 'malformedPresentation');
+        expect(report.queuedAtMicros, isNull);
+      }
+    });
+
+    test('engine playback and stops are reported unavailable with a code',
+        () async {
+      final bridge = _FakeLiveTranslationBridge(measuredOutput: false);
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config);
+      final reports = <SpeechPresentation>[];
+      provider.presentations.listen(reports.add);
+
+      await provider.speak(segment(config.session, 3));
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presentation_unavailable',
+        'utteranceId': '7-3',
+        'reason': 'enginePlayback',
+      });
+      await provider.speak(segment(config.session, 4));
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presentation_unavailable',
+        'utteranceId': '7-4',
+        'reason': 'free text is not a code',
+      });
+      // Unknown utterances produce nothing.
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'presentation_unavailable',
+        'utteranceId': '7-99',
+        'reason': 'stopped',
+      });
+      await pumpEventQueue();
+
+      expect(reports.map((r) => r.reason),
+          <String>['enginePlayback', 'unspecified']);
+      expect(reports.map((r) => r.status),
+          everyElement(SpeechPresentationStatus.unavailable));
+    });
+
+    test('completion carries the sequence echoed by the platform', () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      await provider.prepare(_config());
+      final diagnostics = <LiveTranslationDiagnostic>[];
+      provider.diagnostics.listen(diagnostics.add);
+
+      bridge.ttsController.add(<Object?, Object?>{
+        'type': 'completed',
+        'utteranceId': '7-5',
+        'sequence': 5,
+      });
+      await pumpEventQueue();
+      final completed = diagnostics.where((d) =>
+          d.code == LiveTranslationDiagnosticCode.synthesisCompleted);
+      expect(completed.single.sequence, 5);
     });
   });
 }
@@ -278,18 +467,21 @@ final class _FakeLiveTranslationBridge implements AndroidLiveTranslationBridge {
     this.sttReady = true,
     this.modelReady = true,
     this.ttsReady = true,
+    this.measuredOutput = true,
     this.translatedText = 'translated',
   });
 
   final bool sttReady;
   final bool modelReady;
   final bool ttsReady;
+  final bool measuredOutput;
   final String translatedText;
   final sttController = StreamController<Map<Object?, Object?>>.broadcast();
   final ttsController = StreamController<Map<Object?, Object?>>.broadcast();
   final pushedPcm = <Uint8List>[];
   bool? lastAllowModelDownload;
   String? lastUtteranceId;
+  int? lastSequence;
 
   @override
   Stream<Map<Object?, Object?>> get sttEvents => sttController.stream;
@@ -332,11 +524,19 @@ final class _FakeLiveTranslationBridge implements AndroidLiveTranslationBridge {
   Future<void> disposeTranslation() async {}
   @override
   Future<Map<Object?, Object?>> prepareTts({required String locale}) async =>
-      <Object?, Object?>{'ready': ttsReady};
+      <Object?, Object?>{
+        'ready': ttsReady,
+        'measuredOutput': measuredOutput,
+        'outputReason': measuredOutput ? 'streamedAudio' : 'noStreamedAudio',
+      };
   @override
-  Future<void> speak(
-      {required String text, required String utteranceId}) async {
+  Future<void> speak({
+    required String text,
+    required String utteranceId,
+    required int sequence,
+  }) async {
     lastUtteranceId = utteranceId;
+    lastSequence = sequence;
   }
 
   @override
