@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:persalone_contracts/persalone_contracts.dart';
 
+import 'halo_bounded_display.dart';
+
 /// Deterministic test-only implementation of [DeviceAdapterPort].
 ///
 /// It does not emulate a radio, physical battery, or human-visible display. Its
@@ -10,6 +12,9 @@ import 'package:persalone_contracts/persalone_contracts.dart';
 final class ScriptedHaloFixture implements DeviceAdapterPort {
   ScriptedHaloFixture({int Function()? nowMicros})
       : _nowMicros = nowMicros ?? _defaultNowMicros;
+
+  /// Last bounded command the fixture would have sent. SIMULATED evidence only.
+  HaloDisplayCommand? lastDisplayCommand;
 
   static const String fixtureRevision = 'scripted-halo-fixture/1';
   static final Stopwatch _clock = Stopwatch()..start();
@@ -210,7 +215,26 @@ final class ScriptedHaloFixture implements DeviceAdapterPort {
     String? text,
   }) async {
     _ensureReady();
-    if (text != null || query == HaloLuaQuery.displayText) {
+    if (query == HaloLuaQuery.displayText) {
+      if (text == null) {
+        throw const RuntimeError(
+          RuntimeErrorCode.invalidContract,
+          'Display text requires caption text.',
+        );
+      }
+      // Same bounded builder as the physical path; the result stays SIMULATED.
+      lastDisplayCommand = HaloBoundedDisplay.text(
+        text,
+        powerOn: lastDisplayCommand == null,
+      );
+      return HaloLuaResult(
+        query: query,
+        value: '1',
+        sourceRevision: fixtureRevision,
+        truthLabel: TruthLabel.simulated,
+      );
+    }
+    if (text != null) {
       throw const RuntimeError(
         RuntimeErrorCode.policyDenied,
         'The fixture does not accept caller-supplied Lua text.',
