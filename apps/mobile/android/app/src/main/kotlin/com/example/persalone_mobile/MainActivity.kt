@@ -2,12 +2,15 @@ package com.example.persalone_mobile
 
 import android.Manifest
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.AudioTimestamp
 import android.media.AudioTrack
+import android.media.audiofx.AcousticEchoCanceler
+import android.media.audiofx.NoiseSuppressor
 import android.media.MediaRecorder
 import android.os.Build
 import android.os.Bundle
@@ -56,6 +59,7 @@ class MainActivity : FlutterActivity() {
     private var audioRecord: AudioRecord? = null
     private var audioTrack: AudioTrack? = null
     private var captureThread: Thread? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
     @Volatile private var capturing = false
 
     private var speechRecognizer: SpeechRecognizer? = null
@@ -63,7 +67,7 @@ class MainActivity : FlutterActivity() {
     private var sttWritePipe: ParcelFileDescriptor? = null
     private var sttOutput: FileOutputStream? = null
     private var sttSessionId: String? = null
-    private var sttStreamEpoch: Int? = null
+    private var sttStreamEpoch: Long? = null
     private var sttSequence = 0
 
     private var translator: Translator? = null
@@ -235,8 +239,17 @@ class MainActivity : FlutterActivity() {
         }
         val chunkBytes = max(sampleRateHz / 50 * bytesPerSample, 320)
         val bufferBytes = max(minBufferBytes * 2, chunkBytes * 4)
+        val debuggable = (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val source = ValidationSupport.captureSourceFor(
+            intent?.getStringExtra(ValidationSupport.audioSourceExtra),
+            debuggable,
+        )
+        if (source == null) {
+            result.error("unsupported_audio_source", "Requested capture source is not in the A/B allow-list.", null)
+            return
+        }
         val recorder = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            .setAudioSource(source.androidSource)
             .setAudioFormat(
                 AudioFormat.Builder()
                     .setEncoding(encoding)
@@ -252,6 +265,10 @@ class MainActivity : FlutterActivity() {
             return
         }
 
+        val echoCancelerAvailable = AcousticEchoCanceler.isAvailable()
+        if (source.attachEchoCanceler && echoCancelerAvailable) {
+            echoCanceler = AcousticEchoCanceler.create(recorder.audioSessionId)?.also { it.enabled = true }
+        }
         audioRecord = recorder
         capturing = true
         recorder.startRecording()
@@ -261,6 +278,10 @@ class MainActivity : FlutterActivity() {
         emitInputEvent(
             mapOf(
                 "type" to "capture_started",
+                "audioSource" to source.wire,
+                "aecAvailable" to echoCancelerAvailable,
+                "aecEnabled" to (echoCanceler?.enabled == true),
+                "nsAvailable" to NoiseSuppressor.isAvailable(),
                 "sampleRateHz" to sampleRateHz,
                 "bufferBytes" to bufferBytes,
                 "chunkBytes" to chunkBytes,
@@ -337,6 +358,8 @@ class MainActivity : FlutterActivity() {
         val thread = captureThread
         if (thread != null && thread != Thread.currentThread()) thread.join(500)
         captureThread = null
+        echoCanceler?.release()
+        echoCanceler = null
         recorder?.release()
         audioRecord = null
         emitInputEvent(mapOf("type" to "capture_stopped"))
@@ -452,7 +475,8 @@ class MainActivity : FlutterActivity() {
     private fun prepareStt(call: MethodCall, result: MethodChannel.Result) {
         val arguments = call.arguments as? Map<String, Any?> ?: emptyMap()
         val sessionId = arguments["sessionId"] as? String
-        val streamEpoch = arguments["streamEpoch"] as? Int
+        // Epochs are microsecond timestamps (> 32 bits): read them as Long.
+        val streamEpoch = ValidationSupport.epochOf(arguments["streamEpoch"])
         val locale = arguments["locale"] as? String
         val sampleRateHz = arguments["sampleRateHz"] as? Int
         val channels = arguments["channels"] as? Int
@@ -506,10 +530,10 @@ class MainActivity : FlutterActivity() {
 
     private fun createRecognitionListener(): RecognitionListener = object : RecognitionListener {
         override fun onReadyForSpeech(params: Bundle?) = Unit
-        override fun onBeginningOfSpeech() = Unit
+        override fun onBeginningOfSpeech() = emitSpeechBoundary("speechStarted")
         override fun onRmsChanged(rmsdB: Float) = Unit
         override fun onBufferReceived(buffer: ByteArray?) = Unit
-        override fun onEndOfSpeech() = Unit
+        override fun onEndOfSpeech() = emitSpeechBoundary("speechEnded")
         override fun onError(error: Int) {
             emitSttEvent(mapOf("type" to "error", "code" to "speech_recognizer_$error"))
         }
@@ -520,6 +544,22 @@ class MainActivity : FlutterActivity() {
             emitRecognitionResult("partial", partialResults)
         }
         override fun onEvent(eventType: Int, params: Bundle?) = Unit
+    }
+
+    /**
+     * Recognizer endpointing signals, timestamped on the same monotonic clock
+     * (System.nanoTime) as recognition results, so end-of-speech to final can
+     * be measured. They carry no audio or text.
+     */
+    private fun emitSpeechBoundary(type: String) {
+        emitSttEvent(
+            mapOf(
+                "type" to type,
+                "sessionId" to (sttSessionId ?: return),
+                "streamEpoch" to (sttStreamEpoch ?: return),
+                "observedAtMicros" to System.nanoTime() / 1_000L,
+            ),
+        )
     }
 
     private fun emitRecognitionResult(type: String, results: Bundle?) {

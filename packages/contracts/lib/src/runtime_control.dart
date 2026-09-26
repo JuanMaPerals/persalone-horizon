@@ -171,5 +171,9 @@ abstract interface class RuntimeControlPort {
 
   /// Identifier of the active session, or null when none is active.
   String? get activeSessionId;
+
+  /// Monotonic counter that changes whenever a new session starts, so a
+  /// command aimed at an earlier session can be recognised as stale.
+  int get sessionGeneration;
   Future<CommandResult> execute(RuntimeCommand command);
 }

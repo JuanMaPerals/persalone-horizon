@@ -9,6 +9,19 @@ export type Truth = 'SIMULATED' | 'PREPARED' | 'MEASURED' | 'BLOCKED' | 'FAILED'
 export type SessionState = 'idle' | 'preparing' | 'listening' | 'stopping' | 'stopped' | 'failed' | 'disposed';
 export type CaptionStatus = 'delivered' | 'blocked' | 'failed';
 export type DeviceState = 'idle' | 'discovering' | 'connecting' | 'ready' | 'disconnecting' | 'disconnected' | 'failed';
+/** Turn intervals the runtime measures on its own monotonic clock. */
+export type LatencyStage = 'speechEndToFinal' | 'finalToTranslation' | 'translationToCaption' | 'finalToCaption' | 'finalToSpeechQueued';
+/** Intervals no event can prove today; always rendered UNKNOWN. */
+export const UNOBSERVABLE_LATENCY_STAGES = ['speechQueuedToAudible'] as const;
+/** speechEndToFinal has samples only when the STT provider reports end of speech (Android physical runs). */
+export const LATENCY_STAGES: readonly LatencyStage[] = ['speechEndToFinal', 'finalToTranslation', 'translationToCaption', 'finalToCaption', 'finalToSpeechQueued'];
+/** Minimum samples before a percentile is shown instead of INSUFFICIENT. */
+export const MIN_SAMPLES_P50 = 5;
+export const MIN_SAMPLES_P95 = 20;
+/** Intervals above 10 minutes cannot be a live turn: the event is rejected. */
+export const MAX_LATENCY_MICROS = 600_000_000;
+/** Percentiles use at most this many latest samples per stage. */
+export const LATENCY_WINDOW = 500;
 
 interface EventBase {
   readonly seq: number;
@@ -48,7 +61,17 @@ export interface DeviceStateEvent extends EventBase {
   readonly truth: Truth;
 }
 
-export type RuntimeEvent = SessionStateEvent | CaptionEvent | DiagnosticEvent | DeviceStateEvent;
+export interface LatencyEvent extends EventBase {
+  readonly kind: 'latency';
+  readonly turn: number;
+  readonly stage: LatencyStage;
+  readonly micros: number;
+  /** What closed the interval; null when the runtime cannot know it. */
+  readonly environment: ExecutionEnvironment | null;
+  readonly truth: 'MEASURED';
+}
+
+export type RuntimeEvent = SessionStateEvent | CaptionEvent | DiagnosticEvent | DeviceStateEvent | LatencyEvent;
 
 const environments: readonly ExecutionEnvironment[] = ['SIMULATED', 'EMULATED', 'PC_REAL', 'HALO_REAL'];
 const truths: readonly Truth[] = ['SIMULATED', 'PREPARED', 'MEASURED', 'BLOCKED', 'FAILED'];
@@ -61,6 +84,7 @@ const keysByKind: Record<RuntimeEvent['kind'], readonly string[]> = {
   caption: [...baseKeys, 'turn', 'status', 'environment', 'truth', 'adapter', 'reason'],
   diagnostic: [...baseKeys, 'code', 'component', 'turn', 'detail'],
   deviceState: [...baseKeys, 'state', 'adapter', 'environment', 'truth'],
+  latency: [...baseKeys, 'turn', 'stage', 'micros', 'environment', 'truth'],
 };
 const token = /^[A-Za-z0-9_.:-]{1,64}$/;
 
@@ -101,7 +125,7 @@ export function parseRuntimeEventLine(line: string): RuntimeEvent {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) fail('event must be an object');
   const record = raw as Record<string, unknown>;
   if (record.schema !== RUNTIME_EVENT_SCHEMA) fail('unsupported schema');
-  const kind = oneOf(record.kind, ['sessionState', 'caption', 'diagnostic', 'deviceState'] as const, 'kind');
+  const kind = oneOf(record.kind, ['sessionState', 'caption', 'diagnostic', 'deviceState', 'latency'] as const, 'kind');
   const expected = keysByKind[kind];
   const keys = Object.keys(record);
   if (keys.length !== expected.length || keys.some((key) => !expected.includes(key))) fail(`unexpected fields for ${kind}`);
@@ -146,6 +170,20 @@ export function parseRuntimeEventLine(line: string): RuntimeEvent {
         environment: oneOf(record.environment, environments, 'environment'),
         truth: oneOf(record.truth, truths, 'truth'),
       };
+    case 'latency': {
+      const micros = int(record.micros, 'micros');
+      if (micros > MAX_LATENCY_MICROS) fail('micros out of range');
+      return {
+        ...base,
+        kind,
+        turn: int(record.turn, 'turn'),
+        stage: oneOf(record.stage, LATENCY_STAGES, 'stage'),
+        micros,
+        environment: record.environment === null ? null : oneOf(record.environment, environments, 'environment'),
+        // A latency is either measured or absent; any other label is refused.
+        truth: oneOf(record.truth, ['MEASURED'] as const, 'truth'),
+      };
+    }
   }
 }
 
@@ -170,6 +208,40 @@ export function parseRuntimeEventStream(text: string): ParsedRuntimeStream {
 
 export type Known<T> = T | 'UNKNOWN';
 
+export interface LatencyStat {
+  readonly samples: number;
+  readonly latestMicros: Known<number>;
+  readonly p50Micros: Known<number> | 'INSUFFICIENT';
+  readonly p95Micros: Known<number> | 'INSUFFICIENT';
+  /** Execution path the samples come from; MIXED if the window spans several. */
+  readonly environment: Known<ExecutionEnvironment> | 'MIXED';
+  readonly truth: Known<'MEASURED'>;
+}
+
+/** Nearest-rank percentile of a non-empty list. */
+export function percentile(values: readonly number[], p: number): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const rank = Math.ceil((p / 100) * sorted.length);
+  return sorted[Math.min(sorted.length, Math.max(1, rank)) - 1];
+}
+
+function latencyStat(events: readonly LatencyEvent[]): LatencyStat {
+  if (events.length === 0) {
+    return { samples: 0, latestMicros: 'UNKNOWN', p50Micros: 'UNKNOWN', p95Micros: 'UNKNOWN', environment: 'UNKNOWN', truth: 'UNKNOWN' };
+  }
+  const window = events.slice(-LATENCY_WINDOW);
+  const values = window.map((event) => event.micros);
+  const envs = new Set(window.map((event) => event.environment ?? 'UNKNOWN'));
+  return {
+    samples: window.length,
+    latestMicros: values[values.length - 1],
+    p50Micros: values.length >= MIN_SAMPLES_P50 ? percentile(values, 50) : 'INSUFFICIENT',
+    p95Micros: values.length >= MIN_SAMPLES_P95 ? percentile(values, 95) : 'INSUFFICIENT',
+    environment: envs.size === 1 ? ([...envs][0] as Known<ExecutionEnvironment>) : 'MIXED',
+    truth: 'MEASURED',
+  };
+}
+
 export interface RuntimeView {
   readonly sessionId: Known<string>;
   readonly sessionState: Known<SessionState>;
@@ -189,6 +261,15 @@ export interface RuntimeView {
   readonly sequenceGaps: number;
   readonly rejectedLines: number;
   readonly degraded: boolean;
+  readonly latency: Readonly<Record<LatencyStage, LatencyStat>>;
+  /**
+   * Delivered captions whose text fell outside the HUD glyph set: accented
+   * Latin folded to ASCII, or characters replaced by `?`. This is a known
+   * limitation (ASCII-only device font), not Unicode support.
+   */
+  readonly captionGlyphs: { readonly folded: number; readonly replaced: number };
+  /** Final turns that arrived while/just after TTS spoke: possible self-echo. */
+  readonly selfEcho: { readonly suspected: number; readonly withTextOverlap: number };
 }
 
 const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied']);
@@ -207,6 +288,15 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
   let errorCount = 0;
   let lastSequence: number | null = null;
   let sequenceGaps = 0;
+  const captionGlyphs = { folded: 0, replaced: 0 };
+  const selfEcho = { suspected: 0, withTextOverlap: 0 };
+  const latencyEvents: Record<LatencyStage, LatencyEvent[]> = {
+    speechEndToFinal: [],
+    finalToTranslation: [],
+    translationToCaption: [],
+    finalToCaption: [],
+    finalToSpeechQueued: [],
+  };
 
   const ordered = [...stream.events].sort((a, b) => a.seq - b.seq);
   for (const event of ordered) {
@@ -220,6 +310,8 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
         break;
       case 'caption':
         captions[event.status] += 1;
+        if (event.status === 'delivered' && event.reason === 'glyphsFolded') captionGlyphs.folded += 1;
+        if (event.status === 'delivered' && event.reason === 'glyphsReplaced') captionGlyphs.replaced += 1;
         captionEnvironment = event.environment;
         captionTruth = event.truth;
         break;
@@ -233,6 +325,13 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
           errorCount += 1;
           lastError = { code: event.code, component: event.component, detail: event.detail };
         }
+        if (event.code === 'selfEchoSuspected') {
+          selfEcho.suspected += 1;
+          if (event.detail?.endsWith('.textOverlap')) selfEcho.withTextOverlap += 1;
+        }
+        break;
+      case 'latency':
+        latencyEvents[event.stage].push(event);
         break;
     }
   }
@@ -252,6 +351,15 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
     sequenceGaps,
     rejectedLines: stream.rejected.length,
     degraded: sequenceGaps > 0 || stream.rejected.length > 0,
+    captionGlyphs,
+    selfEcho,
+    latency: {
+      speechEndToFinal: latencyStat(latencyEvents.speechEndToFinal),
+      finalToTranslation: latencyStat(latencyEvents.finalToTranslation),
+      translationToCaption: latencyStat(latencyEvents.translationToCaption),
+      finalToCaption: latencyStat(latencyEvents.finalToCaption),
+      finalToSpeechQueued: latencyStat(latencyEvents.finalToSpeechQueued),
+    },
   };
 }
 

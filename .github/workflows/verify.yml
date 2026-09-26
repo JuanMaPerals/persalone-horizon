@@ -82,6 +82,43 @@ jobs:
           path: ${{ runner.temp }}/e2e-emulated
           if-no-files-found: warn
 
+  android-apk:
+    name: android-apk
+    # Hosted image ships the Android SDK; no secrets: the debug APK is signed
+    # with the auto-generated debug key. This compiles the Kotlin platform
+    # code (never compiled in CI before) and runs its JVM unit tests.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          cache: true
+      - name: Resolve packages
+        run: flutter pub get
+      - name: Build validation APK (debug, redacted validation log on)
+        working-directory: apps/mobile
+        run: flutter build apk --debug --dart-define=HORIZON_VALIDATION_LOG=true
+      - name: Kotlin unit tests
+        working-directory: apps/mobile/android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+      - name: Upload validation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: horizon-validation-apk-debug
+          path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
   console:
     name: console
     runs-on: ubuntu-latest

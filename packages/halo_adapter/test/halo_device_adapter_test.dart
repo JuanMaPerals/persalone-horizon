@@ -7,7 +7,8 @@ import 'package:test/test.dart';
 
 void main() {
   group('ScriptedHaloFixture', () {
-    test('uses the production DeviceAdapter contract with simulated evidence', () async {
+    test('uses the production DeviceAdapter contract with simulated evidence',
+        () async {
       final ScriptedHaloFixture fixture =
           ScriptedHaloFixture(nowMicros: () => 100);
       addTearDown(fixture.dispose);
@@ -32,7 +33,8 @@ void main() {
           TruthLabel.blocked);
     });
 
-    test('rejects malformed USERDATA instead of accepting a fake success', () async {
+    test('rejects malformed USERDATA instead of accepting a fake success',
+        () async {
       final ScriptedHaloFixture fixture =
           ScriptedHaloFixture(nowMicros: () => 100);
       addTearDown(fixture.dispose);
@@ -60,7 +62,8 @@ void main() {
   });
 
   group('HaloDeviceAdapter', () {
-    test('becomes ready only after a required Lua transport is confirmed', () async {
+    test('becomes ready only after a required Lua transport is confirmed',
+        () async {
       final _ControlledTransport transport = _ControlledTransport();
       final HaloDeviceAdapter adapter = HaloDeviceAdapter(
         transport: transport,
@@ -131,31 +134,32 @@ void main() {
       await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'tres');
 
       expect(result.truthLabel, TruthLabel.prepared);
-      expect(transport.displayCommands.map((String lua) =>
-          lua.startsWith('frame.display.power_save(false)')), <bool>[
-        true,
-        false,
-        true,
-      ]);
+      expect(
+          transport.displayCommands.map((String lua) =>
+              lua.startsWith('local d=frame.display d.power_save(false)')),
+          <bool>[
+            true,
+            false,
+            true,
+          ]);
       expect(transport.displayCommands.every(HaloBoundedDisplay.isAcceptable),
           isTrue);
       expect(transport.executed, isEmpty);
     });
 
-    test('rejects oversized or missing text before anything is sent',
-        () async {
+    test('rejects oversized or missing text before anything is sent', () async {
       final (HaloDeviceAdapter adapter, _ControlledTransport transport) =
           await connected();
 
       for (final String? text in <String?>[
-        'a' * (HaloBoundedDisplay.maxTextBytes + 1),
+        'a' * (HaloCaptionComposer.maxInputChars + 1),
         'a\uD800',
         null,
       ]) {
         await expectLater(
           adapter.executeAllowedLua(HaloLuaQuery.displayText, text: text),
-          throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code,
-              'code', RuntimeErrorCode.invalidContract)),
+          throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code, 'code',
+              RuntimeErrorCode.invalidContract)),
         );
       }
       expect(transport.displayCommands, isEmpty);
@@ -178,7 +182,7 @@ void main() {
       transport.displayError = null;
       await adapter.executeAllowedLua(HaloLuaQuery.displayText, text: 'hola');
       expect(transport.displayCommands.single,
-          startsWith('frame.display.power_save(false)'));
+          startsWith('local d=frame.display d.power_save(false)'));
       expect((await adapter.readBattery()).levelPercent, 73);
     });
 
@@ -207,8 +211,8 @@ void main() {
       await adapter.executeAllowedLua(HaloLuaQuery.clearDisplay);
       await expectLater(
         adapter.executeAllowedLua(HaloLuaQuery.clearDisplay, text: 'x'),
-        throwsA(isA<RuntimeError>().having((RuntimeError e) => e.code, 'code',
-            RuntimeErrorCode.policyDenied)),
+        throwsA(isA<RuntimeError>().having(
+            (RuntimeError e) => e.code, 'code', RuntimeErrorCode.policyDenied)),
       );
       expect(transport.executed, <String>['frame.display.clear()print(1)']);
     });
@@ -252,8 +256,10 @@ void main() {
       expect(delivery.status, CaptionDeliveryStatus.delivered);
       expect(delivery.truthLabel, TruthLabel.prepared);
       expect(delivery.reason, isNull);
-      expect(transport.displayCommands.single, startsWith('frame.display.power_save(false)'));
-      expect(HaloBoundedDisplay.isAcceptable(transport.displayCommands.single), isTrue);
+      expect(transport.displayCommands.single,
+          startsWith('local d=frame.display d.power_save(false)'));
+      expect(HaloBoundedDisplay.isAcceptable(transport.displayCommands.single),
+          isTrue);
       expect(
         transport.executed.where((String command) =>
             command.contains('os.execute') || command.contains(injection)),
@@ -262,6 +268,33 @@ void main() {
 
       await captions.clear(_caption('').session);
       expect(transport.executed.last, 'frame.display.clear()print(1)');
+    });
+
+    test('UNICODE LIMIT: degraded glyphs are reported on the delivery',
+        () async {
+      final ScriptedHaloFixture fixture =
+          ScriptedHaloFixture(nowMicros: () => 100);
+      addTearDown(fixture.dispose);
+      final Future<DeviceDiscovery> discovered = fixture.discoveries.first;
+      await fixture.startDiscovery();
+      await fixture.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(fixture);
+
+      final CaptionDelivery plain = await captions.show(_caption('hello'));
+      expect(plain.reason, isNull);
+      expect(plain.foldedGlyphs + plain.replacedGlyphs, 0);
+
+      final CaptionDelivery folded = await captions.show(_caption('qué tal'));
+      expect(folded.status, CaptionDeliveryStatus.delivered);
+      expect(folded.reason, 'glyphsFolded');
+      expect(folded.foldedGlyphs, 1);
+
+      final CaptionDelivery replaced =
+          await captions.show(_caption('año 中文'));
+      expect(replaced.reason, 'glyphsReplaced');
+      expect(replaced.foldedGlyphs, 1);
+      expect(replaced.replacedGlyphs, 2);
     });
 
     test('reports a fixture as SIMULATED, never HALO_REAL or EMULATED',
@@ -284,7 +317,6 @@ void main() {
     });
   });
 }
-
 
 CaptionUpdate _caption(String text) => CaptionUpdate(
       session: const TranslationSession(
@@ -329,7 +361,8 @@ final class _ControlledTransport implements HaloTransport {
   Future<void> stopDiscovery() async {}
 
   @override
-  Future<HaloTransportConnection> connect(HaloTransportDiscovery discovery) async {
+  Future<HaloTransportConnection> connect(
+      HaloTransportDiscovery discovery) async {
     _links.add(true);
     return const HaloTransportConnection(
       reconnectId: 'controlled-1',

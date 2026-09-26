@@ -53,6 +53,7 @@ final class HorizonRuntimeController implements RuntimeControlPort {
   Future<void> _queue = Future<void>.value();
   int _panicGeneration = 0;
   int _sessionCounter = 0;
+  int _generation = 0;
   TranslationDirection _pending;
   TranslationDirection? _effective;
   TranslationSession? _active;
@@ -66,6 +67,9 @@ final class HorizonRuntimeController implements RuntimeControlPort {
 
   @override
   String? get activeSessionId => _active?.sessionId;
+
+  @override
+  int get sessionGeneration => _generation;
 
   @override
   Future<CommandResult> execute(RuntimeCommand command) {
@@ -155,6 +159,7 @@ final class HorizonRuntimeController implements RuntimeControlPort {
           streamId: 'microphone-live',
         ),
       );
+      _generation++;
       return _accept(command);
     } on RuntimeError catch (error) {
       _endSession();
