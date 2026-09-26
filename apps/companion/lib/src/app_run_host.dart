@@ -9,7 +9,7 @@ import 'run_events.dart';
 import 'workspace.dart';
 
 /// State of an interactive app run as reported to Studio.
-enum RunState { running, stopped, failed }
+enum RunState { running, stopping, stopped, failed }
 
 final class AppRun {
   AppRun._(this.runId, this.projectId, this.appDigest, this.generation,
@@ -27,6 +27,7 @@ final class AppRun {
   final List<Map<String, Object?>> events = <Map<String, Object?>>[];
   int _seq = 0;
   Future<void> _queue = Future<void>.value();
+  Future<void>? _stopFuture;
 
   void _event(String type, [Map<String, Object?> detail = const <String, Object?>{}]) {
     events.add(<String, Object?>{
@@ -196,14 +197,23 @@ final class AppRunHost {
 
   Future<AppRun> stop(String runId, {String reason = 'userStop'}) async {
     final AppRun run = get(runId);
-    if (run.state != RunState.running) return run;
+    if (run.state == RunState.stopped || run.state == RunState.failed) return run;
+    final Future<void>? existingStop = run._stopFuture;
+    if (existingStop != null) {
+      await existingStop;
+      return run;
+    }
+
+    run.state = RunState.stopping;
+    run.stopReason = reason;
     events.sessionState(run.runId, run.generation, RuntimeSessionState.stopping);
-    await run._serial(() async {
+    final Future<void> stopping = run._serial(() async {
       await run.session.close();
       run.state = RunState.stopped;
-      run.stopReason = reason;
-      run._event('runStopped', <String, Object?>{'reason': reason});
+      run._event('runStopped', <String, Object?>{'reason': run.stopReason});
     });
+    run._stopFuture = stopping;
+    await stopping;
     events.sessionState(run.runId, run.generation, RuntimeSessionState.stopped);
     if (identical(_leaseHolder, run)) _leaseHolder = null;
     return run;
