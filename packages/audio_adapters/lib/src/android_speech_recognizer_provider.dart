@@ -7,7 +7,8 @@ import 'android_live_translation_bridge.dart';
 
 /// Android implementation of [StreamingSttProvider]. It never opens a second
 /// microphone: the runtime forwards canonical G3 frames through [push].
-final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
+final class AndroidSpeechRecognizerProvider
+    implements StreamingSttProvider, ProviderClockDomain {
   AndroidSpeechRecognizerProvider({
     AndroidLiveTranslationBridge? bridge,
     DateTime Function()? clock,
@@ -44,6 +45,10 @@ final class AndroidSpeechRecognizerProvider implements StreamingSttProvider {
 
   @override
   Stream<TranscriptSegment> get transcripts => _transcripts.stream;
+
+  /// End-of-speech and result times come from System.nanoTime.
+  @override
+  String get monotonicClockDomain => 'android.clock_monotonic';
 
   int get _nowMicros => _clock().microsecondsSinceEpoch;
 

@@ -30,10 +30,16 @@ abstract interface class AndroidLiveTranslationBridge {
   });
   Future<void> disposeTranslation();
 
+  /// Result: `ready`, and `measuredOutput`/`outputReason` for the output path
+  /// the platform selected (observable AudioTrack or engine playback).
   Future<Map<Object?, Object?>> prepareTts({required String locale});
+
+  /// [sequence] is echoed back on the utterance's events; it identifies the
+  /// translation turn and carries no content.
   Future<void> speak({
     required String text,
     required String utteranceId,
+    required int sequence,
   });
   Future<void> stopTts();
 }
@@ -133,10 +139,15 @@ final class MethodChannelAndroidLiveTranslationBridge
       _invokeMap(_ttsChannel, 'prepare', <String, Object>{'locale': locale});
 
   @override
-  Future<void> speak({required String text, required String utteranceId}) =>
+  Future<void> speak({
+    required String text,
+    required String utteranceId,
+    required int sequence,
+  }) =>
       _ttsChannel.invokeMethod<void>('speak', <String, Object>{
         'text': text,
         'utteranceId': utteranceId,
+        'sequence': sequence,
       });
 
   @override

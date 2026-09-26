@@ -50,6 +50,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   RuntimeEventStream? _validationEvents;
   ValidationRecorder? _validationRecorder;
   StreamSubscription<AndroidCaptureConfig>? _captureConfigSubscription;
+  StreamSubscription<ProviderSnapshot>? _ttsOutputSubscription;
 
   late final AndroidMicrophoneAdapter _microphone;
   late final AndroidSpeakerAdapter _speaker;
@@ -139,6 +140,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _runtimeDiagnosticSubscription?.cancel();
     _translationSnapshotSubscription?.cancel();
     _captureConfigSubscription?.cancel();
+    _ttsOutputSubscription?.cancel();
     _validationRecorder?.close();
     _validationEvents?.close();
     _ownedController?.dispose();
@@ -169,6 +171,20 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _captureConfigSubscription = _microphone.captureConfigs.listen(
       (AndroidCaptureConfig config) => recorder.updateMeta(config.toJson()),
     );
+    // Which speech output path this run used: the audible-latency samples
+    // exist only when it is the observable AudioTrack path.
+    _ttsOutputSubscription = _tts.snapshots.listen((ProviderSnapshot snapshot) {
+      final bool? measured = _tts.measuredOutput;
+      if (snapshot.readiness != ProviderReadiness.ready || measured == null) {
+        return;
+      }
+      final String? reason = _tts.outputReason;
+      recorder.updateMeta(<String, Object>{
+        'ttsMeasuredOutput': measured,
+        if (reason != null && RegExp(r'^[A-Za-z0-9_.-]{1,64}$').hasMatch(reason))
+          'ttsOutputReason': reason,
+      });
+    });
   }
 
   Future<void> _requestPermission() async {

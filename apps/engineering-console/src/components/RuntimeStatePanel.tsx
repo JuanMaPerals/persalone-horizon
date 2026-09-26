@@ -4,7 +4,6 @@ import {
   LATENCY_STAGES,
   MIN_SAMPLES_P50,
   MIN_SAMPLES_P95,
-  UNOBSERVABLE_LATENCY_STAGES,
   parseRuntimeEventStream,
   reduceRuntimeEvents,
   runtimeControlAvailability,
@@ -88,7 +87,7 @@ export function RuntimeStatePanel(): ReactElement {
       <div><dt>Last sequence</dt><dd>{value((v) => v.lastSequence ?? 'UNKNOWN')}</dd></div>
     </dl>
     <table className="latency-table" aria-label="Turn latency">
-      <caption>Turn latency · monotonic runtime clock · p50 needs {MIN_SAMPLES_P50}+ samples, p95 needs {MIN_SAMPLES_P95}+</caption>
+      <caption>Turn latency · monotonic clocks (audible = device output presentation, not acoustic) · p50 needs {MIN_SAMPLES_P50}+ samples, p95 needs {MIN_SAMPLES_P95}+</caption>
       <thead>
         <tr><th scope="col">Stage</th><th scope="col">Latest</th><th scope="col">p50</th><th scope="col">p95</th><th scope="col">Samples</th><th scope="col">Environment</th><th scope="col">Evidence</th></tr>
       </thead>
@@ -105,10 +104,6 @@ export function RuntimeStatePanel(): ReactElement {
             <td>{stat ? stat.truth : 'UNKNOWN'}</td>
           </tr>;
         })}
-        {UNOBSERVABLE_LATENCY_STAGES.map((stage) => <tr key={stage}>
-          <th scope="row">{stage}</th>
-          <td colSpan={6}>UNKNOWN · not observable on the runtime clock</td>
-        </tr>)}
       </tbody>
     </table>
     <div className="runtime-controls">

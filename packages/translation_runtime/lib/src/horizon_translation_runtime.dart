@@ -100,6 +100,13 @@ final class HorizonTranslationRuntime {
   int? _speechDoneAtMicros;
   String? _lastSpokenText;
 
+  /// Utterances handed to the synthesizer and not yet reported as presented:
+  /// translation sequence -> recognizer end-of-speech time (STT clock), or
+  /// null when the recognizer did not report one. Bounded; see [_rememberSpoken].
+  static const int maxPendingPresentations = 16;
+  final Map<int, int?> _pendingPresentations = <int, int?>{};
+  StreamSubscription<SpeechPresentation>? _presentationSubscription;
+
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
   Stream<TranscriptSegment> get transcripts => _transcripts.stream;
@@ -157,6 +164,7 @@ final class HorizonTranslationRuntime {
     _speakingSinceMicros = null;
     _speechDoneAtMicros = null;
     _lastSpokenText = null;
+    _pendingPresentations.clear();
     _setState(HorizonTranslationRuntimeState.preparing);
     _bindProviderDiagnostics();
     try {
@@ -393,6 +401,7 @@ final class HorizonTranslationRuntime {
         }
       }
       _lastSpokenText = translation.translatedText;
+      _rememberSpoken(translation.sequence, transcript.speechEndedAtMicros);
       await _synthesizer.speak(translation);
       if (!_isCurrent(session)) {
         _discardStale('tts', translation.sequence);
@@ -481,6 +490,56 @@ final class HorizonTranslationRuntime {
     if (!_diagnostics.isClosed) _diagnostics.add(diagnostic);
   }
 
+  void _rememberSpoken(int sequence, int? speechEndedAtMicros) {
+    _pendingPresentations.remove(sequence);
+    while (_pendingPresentations.length >= maxPendingPresentations) {
+      _pendingPresentations.remove(_pendingPresentations.keys.first);
+    }
+    _pendingPresentations[sequence] = speechEndedAtMicros;
+  }
+
+  /// Turns a synthesizer presentation report into audible-output latency.
+  /// Both ends of each interval come from provider clocks; the runtime clock
+  /// is never mixed in. Unavailable reports close nothing: the stage stays
+  /// UNKNOWN for that turn.
+  void _onPresentation(SpeechPresentation presentation) {
+    final config = _config;
+    if (config == null || !_matches(presentation.session, config.session)) {
+      _discardStale('tts', presentation.sequence);
+      return;
+    }
+    if (!_pendingPresentations.containsKey(presentation.sequence)) {
+      // Not an utterance this session handed over, or already reported.
+      _discardStale('tts', presentation.sequence);
+      return;
+    }
+    final int? speechEndedAt =
+        _pendingPresentations.remove(presentation.sequence);
+    final int? queuedAt = presentation.queuedAtMicros;
+    final int? audibleAt = presentation.audiblePresentedAtMicros;
+    if (presentation.status != SpeechPresentationStatus.presented ||
+        queuedAt == null ||
+        audibleAt == null) {
+      return;
+    }
+    _recordLatency(TurnLatencyStage.speechQueuedToAudible,
+        presentation.sequence, audibleAt - queuedAt);
+    if (speechEndedAt != null && _sharesClockWithStt()) {
+      _recordLatency(TurnLatencyStage.speechEndToAudible, presentation.sequence,
+          audibleAt - speechEndedAt);
+    }
+  }
+
+  bool _sharesClockWithStt() {
+    final Object stt = _stt;
+    final Object tts = _synthesizer;
+    if (stt is! ProviderClockDomain || tts is! ProviderClockDomain) {
+      return false;
+    }
+    final String domain = stt.monotonicClockDomain;
+    return domain.isNotEmpty && domain == tts.monotonicClockDomain;
+  }
+
   void _markSpeechDone() {
     if (_speakingSinceMicros == null) return;
     _speakingSinceMicros = null;
@@ -565,6 +624,7 @@ final class HorizonTranslationRuntime {
       await subscription.cancel();
     }
     _providerDiagnosticSubscriptions.clear();
+    await _unbindPresentations();
     await _input.stop();
     await _stt.stop();
     await _synthesizer.stop();
@@ -596,6 +656,20 @@ final class HorizonTranslationRuntime {
       _providerDiagnosticSubscriptions
           .add(provider.listen(_onProviderDiagnostic));
     }
+    final Object synthesizer = _synthesizer;
+    if (synthesizer is SpeechPresentationReporter) {
+      _presentationSubscription ??=
+          synthesizer.presentations.listen(_onPresentation);
+    }
+  }
+
+  /// Detaches presentation reports; a report that arrives later could only
+  /// belong to a session that is no longer current.
+  Future<void> _unbindPresentations() async {
+    final subscription = _presentationSubscription;
+    _presentationSubscription = null;
+    _pendingPresentations.clear();
+    await subscription?.cancel();
   }
 
   bool _isCurrent(TranslationSession session) {
@@ -680,6 +754,7 @@ final class HorizonTranslationRuntime {
     for (final subscription in diagnosticSubscriptions) {
       await bestEffort('diagnostics', subscription.cancel);
     }
+    await bestEffort('presentations', _unbindPresentations);
     await bestEffort('input', _input.stop);
     await bestEffort('stt', _stt.stop);
     await bestEffort('tts', _synthesizer.stop);
