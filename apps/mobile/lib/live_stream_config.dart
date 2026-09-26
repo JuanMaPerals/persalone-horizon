@@ -1,13 +1,17 @@
-/// Where a validation build serves the read-only runtime stream for Studio.
+/// Where a build serves its loopback endpoints for Studio: the read-only
+/// runtime stream and, when enabled, the authenticated control channel.
 ///
-/// The server binds the phone's loopback only; Studio on the computer reaches
-/// it through `adb forward tcp:<port> tcp:<port>`, so nothing listens on the
-/// LAN. Only the listed browser origins may read it.
+/// The servers bind the phone's loopback only; Studio on the computer reaches
+/// them through `adb forward tcp:<port> tcp:<port>`, so nothing listens on
+/// the LAN. Only the listed browser origins may call them.
 final class LiveStreamConfig {
   const LiveStreamConfig({required this.port, required this.allowedOrigins});
 
   /// Same default as the Engineering Console's live stream URL.
   static const int defaultPort = 47800;
+
+  /// Same default as the Engineering Console's control URL.
+  static const int defaultControlPort = 47801;
 
   /// Studio served locally by Vite.
   static const String defaultOrigins =

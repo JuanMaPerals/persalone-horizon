@@ -11,6 +11,7 @@ import 'package:persalone_translation_runtime/persalone_translation_runtime.dart
 import 'ble_permission_gate.dart';
 import 'halo_caption_path.dart';
 import 'live_stream_config.dart';
+import 'studio_remote_control.dart';
 
 void main() {
   runApp(const PersalOneApp());
@@ -66,6 +67,16 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       'HORIZON_STUDIO_ORIGINS',
       defaultValue: LiveStreamConfig.defaultOrigins);
   RuntimeEventServer? _liveServer;
+
+  /// Studio STOP/PANIC over the authenticated loopback channel. Off unless a
+  /// build sets `--dart-define=HORIZON_REMOTE_CONTROL=true`.
+  static const bool _remoteControl =
+      bool.fromEnvironment('HORIZON_REMOTE_CONTROL');
+  static const int _remoteControlPort = int.fromEnvironment(
+      'HORIZON_REMOTE_CONTROL_PORT',
+      defaultValue: LiveStreamConfig.defaultControlPort);
+  StudioRemoteControl? _studioControl;
+  String _remoteStatus = 'Control remoto de Studio: desactivado.';
 
   /// Captions to a physical Halo over the Brilliant BLE transport. Off unless
   /// a build sets `HORIZON_HALO_CAPTIONS=true`, so runs without a Halo never
@@ -141,6 +152,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       );
     }
     _control = widget.control ?? _ownedController!;
+    if (_remoteControl) {
+      unawaited(_serveRemoteControl());
+    }
     _frameSubscription = _microphone.frames.listen(_collectInputFrame);
     _inputDiagnosticSubscription = _microphone.diagnostics.listen(
       _observeInputDiagnostic,
@@ -174,6 +188,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _captureConfigSubscription?.cancel();
     _ttsOutputSubscription?.cancel();
     _liveServer?.close();
+    _studioControl?.close();
     _haloPath?.dispose();
     _validationRecorder?.close();
     _validationEvents?.close();
@@ -247,6 +262,43 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       debugPrint('HORIZON_LIVE_STREAM ${server.uri}');
     } on Object catch (error) {
       debugPrint('HORIZON_LIVE_STREAM unavailable: ${error.runtimeType}');
+    }
+  }
+
+  /// Loopback only, authenticated, STOP and PANIC only. Only the URL and the
+  /// token file path are logged (for adb), never the token.
+  Future<void> _serveRemoteControl() async {
+    try {
+      final StudioRemoteControl control = await StudioRemoteControl.start(
+        _control,
+        config: LiveStreamConfig.parse(
+            port: _remoteControlPort, origins: _studioOrigins),
+        // On Android the Flutter engine sets Dart's systemTemp to the app's
+        // own code cache (Context.getCodeCacheDir, every Android version), so
+        // the token stays app-private and readable only via `adb run-as`.
+        tokenDirectory:
+            Directory('${Directory.systemTemp.path}/horizon-control'),
+        onLocked: () {
+          debugPrint('HORIZON_REMOTE_CONTROL locked');
+          if (!mounted) return;
+          setState(() => _remoteStatus = 'Control remoto de Studio: BLOQUEADO '
+              'tras intentos fallidos. Relanza la app para uno nuevo.');
+        },
+      );
+      if (!mounted) {
+        await control.close();
+        return;
+      }
+      _studioControl = control;
+      debugPrint('HORIZON_REMOTE_CONTROL ${control.server.uri} '
+          'token-file ${control.tokenFile.path}');
+      setState(() => _remoteStatus = 'Control remoto de Studio: ACTIVO '
+          '(solo STOP y PANIC, loopback + adb, autenticado).');
+    } on Object catch (error) {
+      debugPrint('HORIZON_REMOTE_CONTROL unavailable: ${error.runtimeType}');
+      if (!mounted) return;
+      setState(() => _remoteStatus =
+          'Control remoto de Studio: no disponible (${error.runtimeType}).');
     }
   }
 
@@ -735,6 +787,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
                 _translation.isEmpty ? 'Sin traducción final.' : _translation,
           ),
           Text('Callbacks obsoletos descartados: $_staleCallbacks'),
+          if (_remoteControl) Text(_remoteStatus),
           if (_haloPath != null) ...<Widget>[
             const SizedBox(height: 16),
             _EvidenceCard(title: 'Subtítulos en Halo', value: _haloStatus),

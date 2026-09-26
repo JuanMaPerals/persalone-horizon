@@ -1,6 +1,7 @@
-/// Wire-level control contract for a future authenticated remote channel.
-/// There is no transport here: this only defines what a remote command may
-/// say and how it is validated. There is no payload or execution field.
+/// Wire-level control contract of the authenticated remote channel
+/// (`RemoteControlServer` -> `RemoteControlGateway`). There is no transport
+/// here: this only defines what a remote command may say and how it is
+/// validated. There is no payload or execution field.
 const int controlSchemaVersion = 1;
 
 enum ControlAction {

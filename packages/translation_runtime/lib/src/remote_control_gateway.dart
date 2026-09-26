@@ -3,8 +3,8 @@ import 'dart:collection';
 import 'package:persalone_contracts/persalone_contracts.dart';
 
 /// Domain gateway for untrusted remote control commands. It has no transport
-/// and no authentication: a future authenticated channel hands it decoded
-/// JSON and returns the redacted result.
+/// and no authentication: the authenticated channel ([RemoteControlServer])
+/// hands it decoded JSON and returns the redacted result.
 ///
 /// Validation order: strict parse -> duplicate/replay -> expiry -> policy
 /// matrix -> rate limit -> session generation -> runtime. PANIC skips the
@@ -19,7 +19,11 @@ final class RemoteControlGateway {
     this.rateLimit = 5,
     this.rateWindow = const Duration(seconds: 10),
     this.memory = 1024,
-  }) : _clock = clock ?? DateTime.now;
+    Set<ControlAction>? enabledActions,
+  })  : _clock = clock ?? DateTime.now,
+        enabledActions = Set<ControlAction>.unmodifiable(
+            (enabledActions ?? ControlAction.values.toSet())
+                .where(RemoteControlPolicy.allows));
 
   final RuntimeControlPort _port;
   final DateTime Function() _clock;
@@ -28,6 +32,10 @@ final class RemoteControlGateway {
   final int rateLimit;
   final Duration rateWindow;
   final int memory;
+
+  /// Actions this deployment accepts: a subset of [RemoteControlPolicy] that
+  /// can only narrow it (an action the matrix denies is never enabled).
+  final Set<ControlAction> enabledActions;
 
   final LinkedHashMap<String, (String, int)> _seen =
       LinkedHashMap<String, (String, int)>();
@@ -64,7 +72,7 @@ final class RemoteControlGateway {
     if (envelope.issuedAtMicros - now > futureSkew.inMicroseconds) {
       return _result(ControlResultCode.notYetValid, now, envelope);
     }
-    if (!RemoteControlPolicy.allows(envelope.action)) {
+    if (!enabledActions.contains(envelope.action)) {
       return _result(ControlResultCode.deniedByPolicy, now, envelope);
     }
     final bool panic = envelope.action == ControlAction.panic;
@@ -109,6 +117,19 @@ final class RemoteControlGateway {
       envelope,
     );
   }
+
+  /// What a remote client needs to address a command: the current session
+  /// generation, this side's clock (to correct skew before `issuedAt`) and
+  /// the enabled actions. Numbers and enum names only.
+  Map<String, Object?> status() => <String, Object?>{
+        'schemaVersion': controlSchemaVersion,
+        'sessionGeneration': _port.sessionGeneration,
+        'observedAt': _clock().microsecondsSinceEpoch,
+        'enabledActions': <String>[
+          for (final ControlAction action in ControlAction.values)
+            if (enabledActions.contains(action)) action.name,
+        ],
+      };
 
   void _forget(int now) {
     final int horizon = (expiry + futureSkew).inMicroseconds;
