@@ -17,10 +17,10 @@ const String testResultSchema = 'horizon.test-result.v1';
 /// provenance, target, providers, outcome, evidence, assertions, metrics and
 /// hashed artifacts. It never reports HALO_REAL.
 final class HelloDisplayTestRunner {
-  HelloDisplayTestRunner(this._workspace, this._config);
+  HelloDisplayTestRunner(this._workspace, this._host);
 
   final Workspace _workspace;
-  final EmulatorConfig _config;
+  final AppRunHost _host;
 
   Future<Map<String, Object?>> run(String projectId) async {
     final HorizonAppManifest manifest = await _workspace.loadManifest(projectId);
@@ -60,12 +60,13 @@ final class HelloDisplayTestRunner {
     check('composition.noLoss', c.normalisedText, c.reconstructed);
     final String expectedValue = HaloCaptionComposition.resultValue(c);
 
+    AppRun? hostedRun;
     EmulatorSession? session;
     try {
-      session = await EmulatorSession.open(_config,
-          caption: manifest.caption, advanceOn: manifest.advanceOn);
+      hostedRun = await _host.start(projectId);
+      session = hostedRun.session;
       emulatorVersion = session.emulatorVersion;
-      final FrameCapture first = await session.frame();
+      final FrameCapture first = await _host.frame(hostedRun.runId);
       keep('page-1.png', first);
       check('display.page1Visible', 'lit > 0', 'lit = ${first.lit}', pass: first.lit > 0);
       final bool inside = first.outside == 0 &&
@@ -74,13 +75,13 @@ final class HelloDisplayTestRunner {
           first.bbox![2] < 255;
       check('display.insideVisibleCircle', 'outside = 0, bbox within x 1..254',
           'outside = ${first.outside}, bbox = ${first.bbox}', pass: inside);
-      final String shownValue = await session.showPage(0);
+      final String shownValue = session.lastShown!;
       check('glyphs.reported', expectedValue, shownValue);
 
-      final ButtonOutcome press = await session.press(manifest.advanceOn);
+      final ButtonOutcome press = await _host.press(hostedRun.runId, manifest.advanceOn);
       check('button.deviceReport', <String>['btn:${manifest.advanceOn}'],
           press.deviceReports, pass: _sameList(press.deviceReports, <String>['btn:${manifest.advanceOn}']));
-      final FrameCapture afterPress = await session.frame();
+      final FrameCapture afterPress = await _host.frame(hostedRun.runId);
       if (c.pageCount > 1) {
         keep('page-2.png', afterPress);
         check('button.advancesPage', 'page 2/${c.pageCount}, frame changed',
@@ -94,8 +95,8 @@ final class HelloDisplayTestRunner {
 
       final String other = buttonGestures.firstWhere((String g) => g != manifest.advanceOn);
       final int pageBefore = session.page;
-      final ButtonOutcome ignored = await session.press(other);
-      final FrameCapture afterOther = await session.frame();
+      final ButtonOutcome ignored = await _host.press(hostedRun.runId, other);
+      final FrameCapture afterOther = await _host.frame(hostedRun.runId);
       check('button.otherGestureIgnored',
           'device reports btn:$other, page and frame unchanged',
           'device reports ${ignored.deviceReports}, page ${ignored.page + 1}, frame ${afterOther.pixelSha256 == afterPress.pixelSha256 ? 'unchanged' : 'changed'}',
@@ -104,18 +105,26 @@ final class HelloDisplayTestRunner {
               ignored.page == pageBefore &&
               afterOther.pixelSha256 == afterPress.pixelSha256);
 
-      final FrameCapture cleared = await session.clearAndCapture();
+      final FrameCapture cleared = await _host.clearAndCapture(hostedRun.runId);
       check('stop.clearsDisplay', 'lit = 0', 'lit = ${cleared.lit}', pass: cleared.lit == 0);
       metrics = session.metrics();
       outcome = assertions.every((Map<String, Object?> a) => a['status'] == 'PASS')
           ? 'PASS'
           : 'FAIL';
     } on ApiError catch (e) {
-      if (e.code != 'emulatorBlocked') rethrow;
-      outcome = 'BLOCKED';
-      blockedReason = '${e.params['reason']}';
+      if (e.code == 'emulatorBlocked') {
+        outcome = 'BLOCKED';
+        blockedReason = '${e.params['reason']}';
+      } else if (e.code == 'runNotActive' || e.code == 'runCancelledByPanic') {
+        outcome = 'CANCELLED';
+        blockedReason = e.code;
+      } else {
+        rethrow;
+      }
     } finally {
-      await session?.close();
+      if (hostedRun != null) {
+        await _host.stop(hostedRun.runId, reason: 'testComplete');
+      }
     }
 
     final Map<String, Object?> result = <String, Object?>{
@@ -152,7 +161,7 @@ final class HelloDisplayTestRunner {
       'providers': providersV1,
       'outcome': outcome,
       'blockedReason': blockedReason,
-      'evidence': outcome == 'BLOCKED' ? 'UNKNOWN' : 'MEASURED',
+      'evidence': outcome == 'BLOCKED' || outcome == 'CANCELLED' ? 'UNKNOWN' : 'MEASURED',
       'evidenceScope': 'software behaviour on the official emulator; not Halo hardware',
       'assertions': assertions,
       'metrics': metrics,
