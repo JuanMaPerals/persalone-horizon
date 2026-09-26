@@ -143,6 +143,50 @@ It also shows the speech output path (`ttsMeasuredOutput`, `ttsOutputReason`).
 With `false`, the audible stages must read UNKNOWN; any audible sample in such
 a run means the log is wrong and the run is discarded.
 
+## 4b. Optional: watch the run live in Studio
+
+Validation builds also serve the same redacted stream, read-only, on the
+phone's **loopback** at port 47800 (logcat prints `HORIZON_LIVE_STREAM`). The
+computer reaches it only through adb, so nothing listens on the LAN:
+
+```bash
+adb forward tcp:47800 tcp:47800
+```
+
+```bash
+cd apps/engineering-console && corepack pnpm@10 dev --host 127.0.0.1
+```
+
+Open Studio at `http://127.0.0.1:5173`, Runtime panel, keep the default URL
+`http://127.0.0.1:47800/v1/runtime-events`, connect. Only the origins
+`http://127.0.0.1:5173` and `http://localhost:5173` may read it (build-time
+`HORIZON_STUDIO_ORIGINS` changes the list; `HORIZON_LIVE_STREAM_PORT` the
+port). Remove the forward afterwards:
+
+```bash
+adb forward --remove tcp:47800
+```
+
+Studio can only **watch**. Stop and Panic stay on the phone: the remote
+control gateway has no authenticated transport yet, and adding one is a
+security-boundary decision (BLOCKED_AUTHORIZATION).
+
+## 4c. Halo captions (only with a physical Halo)
+
+The default APK composes **no** caption output, so no run carries a HALO_REAL
+label. A build for a Halo session enables the Brilliant BLE caption path:
+
+```bash
+cd apps/mobile && flutter build apk --debug --dart-define=HORIZON_VALIDATION_LOG=true --dart-define=HORIZON_HALO_CAPTIONS=true
+```
+
+The app then shows "Conectar Halo". Delivered captions are at most PREPARED
+(device acknowledgement); what the wearer saw is recorded by hand. Known
+blocker: the app does not yet declare or request `BLUETOOTH_SCAN` /
+`BLUETOOTH_CONNECT`, so discovery is expected to fail on Android 12+ until
+that permission change is authorized. Captions are then BLOCKED, never
+faked, and translation and speech continue.
+
 ## 5. Read the results
 
 Load each `.ndjson` in the Engineering Console (Runtime panel → offline file).
