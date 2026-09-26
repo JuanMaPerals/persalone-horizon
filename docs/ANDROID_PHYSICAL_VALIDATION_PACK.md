@@ -181,11 +181,22 @@ cd apps/mobile && flutter build apk --debug --dart-define=HORIZON_VALIDATION_LOG
 ```
 
 The app then shows "Conectar Halo". Delivered captions are at most PREPARED
-(device acknowledgement); what the wearer saw is recorded by hand. Known
-blocker: the app does not yet declare or request `BLUETOOTH_SCAN` /
-`BLUETOOTH_CONNECT`, so discovery is expected to fail on Android 12+ until
-that permission change is authorized. Captions are then BLOCKED, never
-faked, and translation and speech continue.
+(device acknowledgement); what the wearer saw is recorded by hand.
+
+Bluetooth permissions: the app declares only `BLUETOOTH_SCAN` (flagged
+`neverForLocation`) and `BLUETOOTH_CONNECT`. "Conectar Halo" first asks for
+them; Bluetooth is touched only once both are granted. Any other answer is
+fail-closed and shown with its code, captions stay BLOCKED, and translation
+and speech continue:
+
+| Shown reason | Meaning |
+|---|---|
+| `permissionDenied (BLUETOOTH_…)` | the person refused one or both; grant them in Android settings and retry |
+| `bleRequiresAndroid12` | Android 11 or older: scanning there needs a location permission this app does not request |
+| `permissionInFlight` / `platformError` / `malformedResponse` | the platform answer could not be trusted; nothing was attempted |
+
+A granted permission is not evidence: HALO_REAL stays BLOCKED_HARDWARE until
+a physical Halo shows the caption and a person records it.
 
 ## 5. Read the results
 

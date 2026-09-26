@@ -36,6 +36,7 @@ void main() {
         built = true;
         throw StateError('must not be built');
       },
+      permission: null,
     );
     expect(path, isNull);
     expect(built, isFalse);
@@ -45,8 +46,9 @@ void main() {
       skip: _skip, () async {
     final EmulatorHaloTransport transport =
         EmulatorHaloTransport(python: _python!, bridgeScript: _bridge);
-    final HaloCaptionPath path =
-        HaloCaptionPath.compose(enabled: true, transport: () => transport)!;
+    // The official emulator needs no Bluetooth permission.
+    final HaloCaptionPath path = HaloCaptionPath.compose(
+        enabled: true, transport: () => transport, permission: null)!;
     addTearDown(() async {
       await path.dispose();
       await transport.dispose();
@@ -67,8 +69,8 @@ void main() {
       skip: _skip, () async {
     final EmulatorHaloTransport transport =
         EmulatorHaloTransport(python: _python!, bridgeScript: _bridge);
-    final HaloCaptionPath path =
-        HaloCaptionPath.compose(enabled: true, transport: () => transport)!;
+    final HaloCaptionPath path = HaloCaptionPath.compose(
+        enabled: true, transport: () => transport, permission: null)!;
     final _Stt stt = _Stt();
     final HorizonTranslationRuntime runtime = HorizonTranslationRuntime(
       input: _Input(),
