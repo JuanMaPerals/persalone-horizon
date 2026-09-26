@@ -1,6 +1,7 @@
 library;
 
 export 'src/audio.dart';
+export 'src/caption.dart';
 export 'src/capability.dart';
 export 'src/device_adapter.dart';
 export 'src/live_translation.dart';

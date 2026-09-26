@@ -213,7 +213,78 @@ void main() {
       expect(transport.executed, <String>['frame.display.clear()print(1)']);
     });
   });
+
+  group('HaloCaptionOutputAdapter', () {
+    const String injection = "]]) frame.display.clear() os.execute('x') --";
+
+    test(
+        'reports real Halo captions as HALO_REAL but BLOCKED and never sends '
+        'caption text to the transport', () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 200,
+      );
+      addTearDown(adapter.dispose);
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(adapter);
+
+      final CaptionDelivery delivery = await captions.show(_caption(injection));
+
+      expect(captions.environment, ExecutionEnvironment.haloReal);
+      expect(delivery.environment, ExecutionEnvironment.haloReal);
+      expect(delivery.status, CaptionDeliveryStatus.delivered);
+      expect(delivery.truthLabel, TruthLabel.prepared);
+      expect(delivery.reason, isNull);
+      expect(transport.displayCommands.single, startsWith('frame.display.power_save(false)'));
+      expect(HaloBoundedDisplay.isAcceptable(transport.displayCommands.single), isTrue);
+      expect(
+        transport.executed.where((String command) =>
+            command.contains('os.execute') || command.contains(injection)),
+        isEmpty,
+      );
+
+      await captions.clear(_caption('').session);
+      expect(transport.executed.last, 'frame.display.clear()print(1)');
+    });
+
+    test('reports a fixture as SIMULATED, never HALO_REAL or EMULATED',
+        () async {
+      final ScriptedHaloFixture fixture =
+          ScriptedHaloFixture(nowMicros: () => 100);
+      addTearDown(fixture.dispose);
+      final Future<DeviceDiscovery> discovered = fixture.discoveries.first;
+      await fixture.startDiscovery();
+      await fixture.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(fixture);
+
+      final CaptionDelivery delivery = await captions.show(_caption('hola'));
+
+      expect(captions.environment, ExecutionEnvironment.simulated);
+      expect(delivery.status, CaptionDeliveryStatus.delivered);
+      expect(delivery.truthLabel, TruthLabel.simulated);
+      expect(fixture.lastDisplayCommand, isNotNull);
+    });
+  });
 }
+
+
+CaptionUpdate _caption(String text) => CaptionUpdate(
+      session: const TranslationSession(
+        sessionId: 'caption-session',
+        streamEpoch: 1,
+        direction: TranslationDirection.spanishToEnglish,
+        privacyGeneration: 1,
+      ),
+      sequence: 1,
+      text: text,
+      observedAtMicros: 1,
+      truthLabel: TruthLabel.simulated,
+    );
 
 final class _ControlledTransport implements HaloTransport {
   final StreamController<HaloTransportDiscovery> _discoveries =
