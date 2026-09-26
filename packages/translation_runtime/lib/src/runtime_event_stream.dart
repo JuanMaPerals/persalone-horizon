@@ -9,13 +9,27 @@ import 'horizon_translation_runtime.dart';
 /// into one ordered, redacted [RuntimeEvent] stream (read-only). It never
 /// reads transcripts or translations, so no text can reach consumers.
 final class RuntimeEventStream {
-  RuntimeEventStream(HorizonTranslationRuntime runtime,
-      {int Function()? nowMicros})
-      : _nowMicros = nowMicros ?? _wallClockMicros {
+  /// [deviceSnapshots] and [deviceEnvironment] come from the composition root,
+  /// which knows the transport behind the device adapter.
+  RuntimeEventStream(
+    HorizonTranslationRuntime runtime, {
+    int Function()? nowMicros,
+    Stream<DeviceAdapterSnapshot>? deviceSnapshots,
+    ExecutionEnvironment deviceEnvironment = ExecutionEnvironment.simulated,
+  }) : _nowMicros = nowMicros ?? _wallClockMicros {
     _subscriptions
       ..add(runtime.snapshots.listen(_onSnapshot))
       ..add(runtime.captionDeliveries.listen(_onCaption))
       ..add(runtime.diagnostics.listen(_onDiagnostic));
+    if (deviceSnapshots != null) {
+      _subscriptions.add(deviceSnapshots.listen(
+        (DeviceAdapterSnapshot snapshot) => _emit(RuntimeEvent.deviceState(
+          streamSequence: ++_sequence,
+          snapshot: snapshot,
+          environment: deviceEnvironment,
+        )),
+      ));
+    }
   }
 
   final int Function() _nowMicros;
