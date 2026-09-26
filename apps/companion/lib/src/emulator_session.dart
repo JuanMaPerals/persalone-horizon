@@ -12,10 +12,15 @@ import 'metrics.dart';
 /// Where the official emulator and its bridge are. Missing pieces make every
 /// run BLOCKED with a concrete reason; nothing falls back to a fake display.
 final class EmulatorConfig {
-  const EmulatorConfig({this.python, this.bridgeScript});
+  const EmulatorConfig({this.python, this.bridgeScript, this.afterButtonReport});
 
   final String? python;
   final String? bridgeScript;
+
+  /// Deterministic fault-injection barrier used by concurrency tests. It runs
+  /// after the emulated device has reported a button press but before the
+  /// session applies any page-advance effect. Production callers leave null.
+  final Future<void> Function()? afterButtonReport;
 
   String? get blockedReason {
     if (python == null) return 'pythonNotConfigured';
@@ -33,13 +38,14 @@ final class EmulatorConfig {
 /// to the next page.
 final class EmulatorSession {
   EmulatorSession._(this._transport, this._device, this.caption, this.advanceOn,
-      this.pageCount);
+      this.pageCount, this._afterButtonReport);
 
   final EmulatorHaloTransport _transport;
   final HaloDeviceAdapter _device;
   final String caption;
   final String advanceOn;
   final int pageCount;
+  final Future<void> Function()? _afterButtonReport;
   int page = 0;
   bool _closed = false;
   StreamSubscription<DeviceAdapterSnapshot>? _snapshots;
@@ -91,9 +97,9 @@ final class EmulatorSession {
       throw const ApiError(409, 'emulatorBlocked',
           <String, Object>{'reason': 'emulatorStartFailed'});
     }
-    final EmulatorSession session =
-        EmulatorSession._(transport, device, caption, advanceOn, pageCount)
-          .._snapshots = snapshots;
+    final EmulatorSession session = EmulatorSession._(
+        transport, device, caption, advanceOn, pageCount, config.afterButtonReport)
+      .._snapshots = snapshots;
     await session.showPage(0);
     return session;
   }
@@ -112,7 +118,7 @@ final class EmulatorSession {
 
   /// Presses [gesture]; if the device reports the configured gesture the next
   /// page is shown (wrapping to the first).
-  Future<ButtonOutcome> press(String gesture) async {
+  Future<ButtonOutcome> press(String gesture, {bool Function()? isCurrent}) async {
     _ensureOpen();
     final HaloButtonPress press = HaloButtonPress.values
         .firstWhere((HaloButtonPress p) => p.wire == gesture,
@@ -120,6 +126,10 @@ final class EmulatorSession {
     final Stopwatch w = Stopwatch()..start();
     final List<String> reported = await _transport.pressButton(press);
     buttonReport.add(w.elapsed);
+    await _afterButtonReport?.call();
+    if (isCurrent != null && !isCurrent()) {
+      throw const ApiError(409, 'runNotActive');
+    }
     final bool advance = reported.contains('btn:$advanceOn');
     String? shown;
     if (advance) {
