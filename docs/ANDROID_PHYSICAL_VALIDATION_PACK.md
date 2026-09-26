@@ -167,9 +167,54 @@ port). Remove the forward afterwards:
 adb forward --remove tcp:47800
 ```
 
-Studio can only **watch**. Stop and Panic stay on the phone: the remote
-control gateway has no authenticated transport yet, and adding one is a
-security-boundary decision (BLOCKED_AUTHORIZATION).
+The stream only **watches**; it never carries commands.
+
+### Optional: Stop and Panic from Studio (authenticated)
+
+A build that adds `--dart-define=HORIZON_REMOTE_CONTROL=true` also serves
+the authenticated control channel on the phone's **loopback**, port 47801
+(`HORIZON_REMOTE_CONTROL_PORT` changes it). It only carries **STOP** and
+**PANIC**, into the same controller the phone's buttons use. START, language
+changes, device connect/select/disconnect and anything else are refused by
+policy, and the phone's own Stop and Panic keep working whatever happens to
+the channel. The phone shows "Control remoto de Studio: ACTIVO" while it is
+on.
+
+```bash
+cd apps/mobile && flutter build apk --debug --dart-define=HORIZON_VALIDATION_LOG=true --dart-define=HORIZON_REMOTE_CONTROL=true
+```
+
+```bash
+adb forward tcp:47801 tcp:47801
+```
+
+Logcat prints `HORIZON_REMOTE_CONTROL <url> token-file <path>` (the path,
+never the token). Each launch creates a new random token (256 bits) in
+app-private storage; read it only through adb:
+
+```bash
+adb exec-out run-as com.example.persalone_mobile cat <path>
+```
+
+In Studio's Runtime panel, keep the control URL `http://127.0.0.1:47801`,
+paste the token, **Connect control**, then use STOP or PANIC. Studio keeps
+the token in memory only (not stored, not shown, cleared from the field) and
+sends it only to a loopback URL. Do not paste it anywhere else.
+
+| Refusal | Meaning |
+|---|---|
+| `unauthorized` | wrong or old token (a relaunch rotates it) |
+| `controlLocked` | 10 failed authentications: the channel is closed until the app is relaunched |
+| `hostNotAllowed` / `originNotAllowed` | the request did not come from loopback Studio |
+| `staleGeneration` | a STOP aimed at an earlier session: **Refresh status** and retry |
+| `expired` / `notYetValid` | the command was more than 30 s old or dated in the future |
+| `deniedByPolicy` | the action is not remote (START, language, device) |
+
+Remove the forward afterwards:
+
+```bash
+adb forward --remove tcp:47801
+```
 
 ## 4c. Halo captions (only with a physical Halo)
 

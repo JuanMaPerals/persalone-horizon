@@ -386,13 +386,3 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
     },
   };
 }
-
-export type RuntimeControl = 'start' | 'stop' | 'panic';
-
-/** Controls stay disabled until an authenticated, bounded control API exists. The event stream is read-only and never carries commands. */
-export function runtimeControlAvailability(_control: RuntimeControl): { readonly enabled: false; readonly reason: string } {
-  return {
-    enabled: false,
-    reason: 'No authenticated control API exists yet; the runtime event stream is read-only.',
-  };
-}

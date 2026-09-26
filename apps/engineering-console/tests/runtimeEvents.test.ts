@@ -4,7 +4,6 @@ import {
   parseRuntimeEventLine,
   parseRuntimeEventStream,
   reduceRuntimeEvents,
-  runtimeControlAvailability,
   RuntimeEventError,
 } from '../src/runtime/runtimeEvents';
 
@@ -84,15 +83,5 @@ describe('degraded and hostile input', () => {
   it('never reports HALO_REAL unless an event says so', () => {
     const view = reduceRuntimeEvents(parseRuntimeEventStream(JSON.stringify(base)));
     expect(view.captionEnvironment).toBe('EMULATED');
-  });
-});
-
-describe('runtime controls', () => {
-  it('keeps Start, Stop and Panic disabled with an explicit reason', () => {
-    for (const control of ['start', 'stop', 'panic'] as const) {
-      const availability = runtimeControlAvailability(control);
-      expect(availability.enabled).toBe(false);
-      expect(availability.reason).toMatch(/read-only/);
-    }
   });
 });
