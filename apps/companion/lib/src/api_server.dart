@@ -61,7 +61,7 @@ final class CompanionApi {
       token ?? _newToken(),
       workspace,
       host,
-      HelloDisplayTestRunner(workspace, emulator),
+      HelloDisplayTestRunner(workspace, host),
       allowedOrigins,
       events,
     );
