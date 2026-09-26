@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -63,6 +64,26 @@ void main() {
           d.environment == ExecutionEnvironment.haloReal),
       isEmpty,
     );
+
+    // The read-only runtime event stream reports the same layer labels.
+    await h.settle();
+    final List<Map<String, Object?>> events = h.eventLines
+        .map((String l) => jsonDecode(l) as Map<String, Object?>)
+        .toList();
+    final Map<String, Object?> caption =
+        events.singleWhere((Map<String, Object?> e) => e['kind'] == 'caption');
+    expect(caption['environment'], 'EMULATED');
+    expect(caption['truth'], 'PREPARED');
+    expect(
+      events
+          .where((Map<String, Object?> e) => e['kind'] == 'sessionState')
+          .map((Map<String, Object?> e) => e['state']),
+      containsAllInOrder(<String>['preparing', 'listening']),
+    );
+    final String wire = h.eventLines.join('\n');
+    expect(wire, isNot(contains('HELLO WORLD')));
+    expect(wire, isNot(contains('HALO_REAL')));
+    _ndjson('positive', h.eventLines);
   });
 
   test('stale turn: an older translation never reaches the framebuffer',
@@ -188,6 +209,14 @@ void main() {
   });
 }
 
+void _ndjson(String name, List<String> lines) {
+  final String? dir = _artifacts;
+  if (dir == null) return;
+  Directory(dir).createSync(recursive: true);
+  File('$dir/runtime_events_$name.v1.ndjson')
+      .writeAsStringSync('${lines.join('\n')}\n');
+}
+
 String? _png(String name) {
   final String? dir = _artifacts;
   if (dir == null) return null;
@@ -244,6 +273,8 @@ final class _Harness {
   final _SimTts tts;
   final List<CaptionDelivery> deliveries = <CaptionDelivery>[];
   final List<TranslationSegment> translations = <TranslationSegment>[];
+  final List<String> eventLines = <String>[];
+  late final RuntimeEventStream eventStream = RuntimeEventStream(runtime);
   final List<StreamSubscription<Object>> _subs = <StreamSubscription<Object>>[];
 
   static Future<_Harness> start(String python) async {
@@ -268,7 +299,9 @@ final class _Harness {
         _Harness._(transport, device, runtime, input, stt, translator, tts);
     h._subs
       ..add(runtime.captionDeliveries.listen(h.deliveries.add))
-      ..add(runtime.translations.listen(h.translations.add));
+      ..add(runtime.translations.listen(h.translations.add))
+      ..add(h.eventStream.events.listen((RuntimeEvent e) =>
+          h.eventLines.add(RuntimeEventStream.encodeLine(e))));
     await runtime.start(
       config: const LiveTranslationConfig(
         session: _session,
@@ -315,6 +348,7 @@ final class _Harness {
     for (final StreamSubscription<Object> sub in _subs) {
       await sub.cancel();
     }
+    await eventStream.close();
     await runtime.dispose();
     await device.dispose();
     await transport.dispose();
