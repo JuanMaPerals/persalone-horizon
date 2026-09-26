@@ -94,6 +94,9 @@ enum LiveTranslationDiagnosticCode {
   synthesisCompleted,
   synthesisFailed,
   staleCallbackDiscarded,
+  captionDelivered,
+  captionBlocked,
+  captionFailed,
 }
 
 /// Redacted event from a G5 provider or runtime. [detail] must never contain

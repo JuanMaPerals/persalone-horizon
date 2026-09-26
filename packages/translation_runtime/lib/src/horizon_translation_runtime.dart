@@ -43,17 +43,20 @@ final class HorizonTranslationRuntime {
     required StreamingSttProvider stt,
     required TextTranslationProvider translator,
     required SpeechSynthesisProvider synthesizer,
+    CaptionOutputAdapter? captions,
     DateTime Function()? clock,
   })  : _input = input,
         _stt = stt,
         _translator = translator,
         _synthesizer = synthesizer,
+        _captions = captions,
         _clock = clock ?? DateTime.now;
 
   final AudioInputAdapter _input;
   final StreamingSttProvider _stt;
   final TextTranslationProvider _translator;
   final SpeechSynthesisProvider _synthesizer;
+  final CaptionOutputAdapter? _captions;
   final DateTime Function() _clock;
 
   final StreamController<HorizonTranslationRuntimeSnapshot> _snapshots =
@@ -64,6 +67,8 @@ final class HorizonTranslationRuntime {
       StreamController<TranscriptSegment>.broadcast();
   final StreamController<TranslationSegment> _translations =
       StreamController<TranslationSegment>.broadcast();
+  final StreamController<CaptionDelivery> _captionDeliveries =
+      StreamController<CaptionDelivery>.broadcast();
 
   StreamSubscription<AudioFrame>? _frameSubscription;
   StreamSubscription<TranscriptSegment>? _transcriptSubscription;
@@ -79,6 +84,7 @@ final class HorizonTranslationRuntime {
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
   Stream<TranscriptSegment> get transcripts => _transcripts.stream;
   Stream<TranslationSegment> get translations => _translations.stream;
+  Stream<CaptionDelivery> get captionDeliveries => _captionDeliveries.stream;
   HorizonTranslationRuntimeState get state => _state;
 
   int get _nowMicros => _clock().microsecondsSinceEpoch;
@@ -174,8 +180,9 @@ final class HorizonTranslationRuntime {
       return;
     }
     _setState(HorizonTranslationRuntimeState.stopping);
+    final session = _config?.session;
     _config = null;
-    await _stopActiveResources();
+    await _stopActiveResources(session);
     _setState(HorizonTranslationRuntimeState.stopped);
   }
 
@@ -192,6 +199,7 @@ final class HorizonTranslationRuntime {
     await _diagnostics.close();
     await _transcripts.close();
     await _translations.close();
+    await _captionDeliveries.close();
     _state = HorizonTranslationRuntimeState.disposed;
   }
 
@@ -285,6 +293,14 @@ final class HorizonTranslationRuntime {
         component: 'translation',
         sequence: translation.sequence,
       );
+      final captions = _captions;
+      if (captions != null) {
+        await _deliverCaption(captions, translation);
+        if (!_isCurrent(session) || turn != _lastDeliveredTurn) {
+          _discardStale('tts', translation.sequence);
+          return;
+        }
+      }
       await _synthesizer.speak(translation);
       if (!_isCurrent(session)) {
         _discardStale('tts', translation.sequence);
@@ -306,7 +322,72 @@ final class HorizonTranslationRuntime {
     }
   }
 
-  Future<void> _stopActiveResources() async {
+  Future<void> _deliverCaption(
+    CaptionOutputAdapter captions,
+    TranslationSegment translation,
+  ) async {
+    final session = translation.session;
+    CaptionDelivery delivery;
+    try {
+      delivery = await captions.show(CaptionUpdate(
+        session: session,
+        sequence: translation.sequence,
+        text: translation.translatedText,
+        observedAtMicros: _nowMicros,
+        truthLabel: translation.truthLabel,
+      ));
+      // An adapter cannot report a different execution path than it declares.
+      if (delivery.environment != captions.environment) {
+        delivery = _failedCaption(captions, translation, 'environmentMismatch');
+      }
+    } on Object {
+      delivery = _failedCaption(captions, translation, 'adapterError');
+    }
+    if (!_isCurrent(session)) {
+      // The session stopped while the destination was rendering; do not leave
+      // a caption from a closed conversation on the display.
+      _discardStale('caption', translation.sequence);
+      try {
+        await captions.clear(session);
+      } on Object {
+        // Teardown already ran; a failed late clear is reported as stale only.
+      }
+      return;
+    }
+    if (!_captionDeliveries.isClosed) {
+      _captionDeliveries.add(delivery);
+    }
+    _emitDiagnostic(
+      switch (delivery.status) {
+        CaptionDeliveryStatus.delivered =>
+          LiveTranslationDiagnosticCode.captionDelivered,
+        CaptionDeliveryStatus.blocked =>
+          LiveTranslationDiagnosticCode.captionBlocked,
+        CaptionDeliveryStatus.failed =>
+          LiveTranslationDiagnosticCode.captionFailed,
+      },
+      component: 'caption',
+      sequence: translation.sequence,
+      detail: delivery.reason,
+    );
+  }
+
+  CaptionDelivery _failedCaption(
+    CaptionOutputAdapter captions,
+    TranslationSegment translation,
+    String reason,
+  ) =>
+      CaptionDelivery(
+        session: translation.session,
+        sequence: translation.sequence,
+        status: CaptionDeliveryStatus.failed,
+        environment: captions.environment,
+        truthLabel: TruthLabel.failed,
+        adapterId: captions.adapterId,
+        reason: reason,
+      );
+
+  Future<void> _stopActiveResources(TranslationSession? session) async {
     await _frameSubscription?.cancel();
     _frameSubscription = null;
     await _transcriptSubscription?.cancel();
@@ -318,6 +399,19 @@ final class HorizonTranslationRuntime {
     await _input.stop();
     await _stt.stop();
     await _synthesizer.stop();
+    final captions = _captions;
+    if (session != null && captions != null) {
+      try {
+        await captions.clear(session);
+      } on Object {
+        // A disconnected display must not prevent the session from stopping.
+        _emitDiagnostic(
+          LiveTranslationDiagnosticCode.captionFailed,
+          component: 'caption',
+          detail: 'clearFailed',
+        );
+      }
+    }
   }
 
   void _bindProviderDiagnostics() {
@@ -375,11 +469,14 @@ final class HorizonTranslationRuntime {
     // invalidate it before any asynchronous teardown. Late frames/transcripts
     // are therefore stale immediately and cannot continue translation or TTS.
     _setState(HorizonTranslationRuntimeState.failed, failureCode: errorCode);
+    final session = _config?.session;
     _config = null;
-    await _stopActiveResourcesAfterFailure();
+    await _stopActiveResourcesAfterFailure(session);
   }
 
-  Future<void> _stopActiveResourcesAfterFailure() async {
+  Future<void> _stopActiveResourcesAfterFailure(
+    TranslationSession? session,
+  ) async {
     final frameSubscription = _frameSubscription;
     _frameSubscription = null;
     final transcriptSubscription = _transcriptSubscription;
@@ -411,6 +508,10 @@ final class HorizonTranslationRuntime {
     await bestEffort(_input.stop);
     await bestEffort(_stt.stop);
     await bestEffort(_synthesizer.stop);
+    final captions = _captions;
+    if (session != null && captions != null) {
+      await bestEffort(() => captions.clear(session));
+    }
   }
 
   void _setState(
@@ -434,6 +535,7 @@ final class HorizonTranslationRuntime {
     LiveTranslationDiagnosticCode code, {
     required String component,
     int? sequence,
+    String? detail,
   }) {
     if (!_diagnostics.isClosed) {
       _diagnostics.add(LiveTranslationDiagnostic(
@@ -441,6 +543,7 @@ final class HorizonTranslationRuntime {
         component: component,
         observedAtMicros: _nowMicros,
         sequence: sequence,
+        detail: detail,
       ));
     }
   }

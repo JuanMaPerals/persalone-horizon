@@ -40,23 +40,23 @@ function event(
 export const emulatedSessions: readonly TraceSession[] = [
   {
     id: sessionId,
-    label: 'Emulated translation handshake · ES → EN',
+    label: 'Simulated translation handshake · ES → EN',
     startedAt: new Date(origin).toISOString(),
     evidence: 'SIMULATED',
-    source: 'EMULATED',
+    source: 'SIMULATED',
   },
 ];
 
 export const emulatedTraceEvents: readonly HaloTraceEvent[] = [
-  event('evt-001', 0, 1, 'session', 'session.started', 'Session initialized', 'Emulated session started with a local-only trace.', {
-    tags: ['session', 'emulated'],
+  event('evt-001', 0, 1, 'session', 'session.started', 'Session initialized', 'Simulated session started with a local-only trace.', {
+    tags: ['session', 'simulated'],
     attributes: { direction: 'es-EN', privacy_generation: 1 },
   }),
   event('evt-002', 160, 2, 'ble', 'ble.discovery', 'Halo fixture discovered', 'Scripted fixture exposed a declared display path.', {
     tags: ['fixture', 'ble'],
     attributes: { adapter: 'ScriptedHaloFixture', device_source: 'fixture' },
   }),
-  event('evt-003', 420, 3, 'ble', 'ble.connected', 'Fixture connected', 'Single emulated connection established.', {
+  event('evt-003', 420, 3, 'ble', 'ble.connected', 'Fixture connected', 'Single simulated fixture connection established.', {
     tags: ['connection'],
     attributes: { mtu: 185, reconnect_attempt: 0 },
   }),
@@ -76,12 +76,12 @@ export const emulatedTraceEvents: readonly HaloTraceEvent[] = [
     tags: ['frame', 'redacted'],
     attributes: { sequence: 24, duration_ms: 20, discontinuity: false },
   }),
-  event('evt-007', 1710, 7, 'translation', 'translation.asr.partial', 'Partial transcript boundary', 'Emulated partial marker only; transcript content is intentionally absent.', {
+  event('evt-007', 1710, 7, 'translation', 'translation.asr.partial', 'Partial transcript boundary', 'Simulated partial marker only; transcript content is intentionally absent.', {
     tags: ['asr', 'redacted'],
     attributes: { language: 'es', content_retained: false },
   }),
-  event('evt-008', 2110, 8, 'translation', 'translation.completed', 'Translation stage completed', 'Emulated segment translated through the deterministic fixture.', {
-    tags: ['translation', 'emulated'],
+  event('evt-008', 2110, 8, 'translation', 'translation.completed', 'Translation stage completed', 'Simulated segment translated through the deterministic fixture.', {
+    tags: ['translation', 'simulated'],
     span: { startedAtMs: origin + 1710, endedAtMs: origin + 2110, durationMs: 400 },
     attributes: { source_language: 'es', target_language: 'en', provider: 'fixture' },
   }),
@@ -105,7 +105,7 @@ export const emulatedTraceEvents: readonly HaloTraceEvent[] = [
     tags: ['host-audio', 'cleanup'],
     attributes: { frames_seen: 24, buffer_purged: true },
   }),
-  event('evt-013', 3560, 13, 'session', 'session.ended', 'Session completed', 'Emulated session completed without physical-device claims.', {
+  event('evt-013', 3560, 13, 'session', 'session.ended', 'Session completed', 'Simulated session completed without physical-device claims.', {
     tags: ['session', 'complete'],
     attributes: { terminal_state: 'completed', physical_claim: false },
   }),

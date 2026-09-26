@@ -105,13 +105,82 @@ void main() {
       );
     });
   });
+
+  group('HaloCaptionOutputAdapter', () {
+    const String injection = "]]) frame.display.clear() os.execute('x') --";
+
+    test(
+        'reports real Halo captions as HALO_REAL but BLOCKED and never sends '
+        'caption text to the transport', () async {
+      final _ControlledTransport transport = _ControlledTransport();
+      final HaloDeviceAdapter adapter = HaloDeviceAdapter(
+        transport: transport,
+        nowMicros: () => 200,
+      );
+      addTearDown(adapter.dispose);
+      final Future<DeviceDiscovery> discovered = adapter.discoveries.first;
+      await adapter.startDiscovery();
+      await adapter.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(adapter);
+
+      final CaptionDelivery delivery = await captions.show(_caption(injection));
+
+      expect(captions.environment, ExecutionEnvironment.haloReal);
+      expect(delivery.environment, ExecutionEnvironment.haloReal);
+      expect(delivery.status, CaptionDeliveryStatus.blocked);
+      expect(delivery.truthLabel, TruthLabel.blocked);
+      expect(delivery.reason, RuntimeErrorCode.capabilityUnavailable.name);
+      expect(
+        transport.executed.where((String command) =>
+            command.contains('os.execute') || command.contains(injection)),
+        isEmpty,
+      );
+
+      await captions.clear(_caption('').session);
+      expect(transport.executed.last, 'frame.display.clear()print(1)');
+    });
+
+    test('reports a fixture as SIMULATED, never HALO_REAL or EMULATED',
+        () async {
+      final ScriptedHaloFixture fixture =
+          ScriptedHaloFixture(nowMicros: () => 100);
+      addTearDown(fixture.dispose);
+      final Future<DeviceDiscovery> discovered = fixture.discoveries.first;
+      await fixture.startDiscovery();
+      await fixture.connect(await discovered);
+      final HaloCaptionOutputAdapter captions =
+          HaloCaptionOutputAdapter(fixture);
+
+      final CaptionDelivery delivery = await captions.show(_caption('hola'));
+
+      expect(captions.environment, ExecutionEnvironment.simulated);
+      expect(delivery.status, CaptionDeliveryStatus.blocked);
+      expect(delivery.truthLabel, isNot(TruthLabel.measured));
+      expect(delivery.reason, RuntimeErrorCode.policyDenied.name);
+    });
+  });
 }
+
+CaptionUpdate _caption(String text) => CaptionUpdate(
+      session: const TranslationSession(
+        sessionId: 'caption-session',
+        streamEpoch: 1,
+        direction: TranslationDirection.spanishToEnglish,
+        privacyGeneration: 1,
+      ),
+      sequence: 1,
+      text: text,
+      observedAtMicros: 1,
+      truthLabel: TruthLabel.simulated,
+    );
 
 final class _ControlledTransport implements HaloTransport {
   final StreamController<HaloTransportDiscovery> _discoveries =
       StreamController<HaloTransportDiscovery>.broadcast();
   final StreamController<bool> _links = StreamController<bool>.broadcast();
   Uint8List? lastUserData;
+  final List<String> executed = <String>[];
 
   @override
   Stream<HaloTransportDiscovery> get discoveries => _discoveries.stream;
@@ -166,6 +235,7 @@ final class _ControlledTransport implements HaloTransport {
 
   @override
   Future<String> executeReadOnlyLua(String command) async {
+    executed.add(command);
     return switch (command) {
       'print(frame.get_eui())' => '0011223344556677',
       'print(frame.HARDWARE_VERSION)' => 'halo',

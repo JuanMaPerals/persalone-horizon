@@ -1,0 +1,72 @@
+import 'package:persalone_contracts/persalone_contracts.dart';
+
+import 'halo_device_adapter.dart';
+
+/// Routes runtime captions to a Halo device port through the existing
+/// allow-listed [HaloLuaQuery.displayText] query; it adds no Lua of its own.
+///
+/// Only [HaloDeviceAdapter] is reported as [ExecutionEnvironment.haloReal]; any
+/// other port (fixture, fake) is reported as [ExecutionEnvironment.simulated].
+/// A command acknowledgement is capped at [TruthLabel.prepared]: it proves the
+/// device accepted the command, not that a person saw the caption.
+final class HaloCaptionOutputAdapter implements CaptionOutputAdapter {
+  HaloCaptionOutputAdapter(this._device)
+      : environment = _device is HaloDeviceAdapter
+            ? ExecutionEnvironment.haloReal
+            : ExecutionEnvironment.simulated;
+
+  final DeviceAdapterPort _device;
+
+  @override
+  final ExecutionEnvironment environment;
+
+  @override
+  String get adapterId => 'halo-caption:${_device.adapterId}';
+
+  @override
+  Future<CaptionDelivery> show(CaptionUpdate update) async {
+    try {
+      final result = await _device.executeAllowedLua(
+        HaloLuaQuery.displayText,
+        text: update.text,
+      );
+      return _delivery(
+        update,
+        CaptionDeliveryStatus.delivered,
+        result.truthLabel == TruthLabel.measured
+            ? TruthLabel.prepared
+            : result.truthLabel,
+      );
+    } on RuntimeError catch (error) {
+      final refused = error.code == RuntimeErrorCode.capabilityUnavailable ||
+          error.code == RuntimeErrorCode.policyDenied;
+      return _delivery(
+        update,
+        refused ? CaptionDeliveryStatus.blocked : CaptionDeliveryStatus.failed,
+        refused ? TruthLabel.blocked : TruthLabel.failed,
+        reason: error.code.name,
+      );
+    }
+  }
+
+  @override
+  Future<void> clear(TranslationSession session) async {
+    await _device.executeAllowedLua(HaloLuaQuery.clearDisplay);
+  }
+
+  CaptionDelivery _delivery(
+    CaptionUpdate update,
+    CaptionDeliveryStatus status,
+    TruthLabel truthLabel, {
+    String? reason,
+  }) =>
+      CaptionDelivery(
+        session: update.session,
+        sequence: update.sequence,
+        status: status,
+        environment: environment,
+        truthLabel: truthLabel,
+        adapterId: adapterId,
+        reason: reason,
+      );
+}
