@@ -24,6 +24,7 @@ const panels: readonly PanelDefinition[] = [
   { id: 'community-lab', title: 'Community Lab', group: 'Inspect' },
   { id: 'ble-monitor', title: 'BLE Monitor', group: 'Systems' },
   { id: 'metrics', title: 'Metrics & Latency', group: 'Systems' },
+  { id: 'runtime-state', title: 'Runtime State (event stream)', group: 'Systems' },
 ];
 
 function DockPanel(props: IDockviewPanelProps<{ panelId: ConsolePanelId }>): ReactElement {
@@ -75,6 +76,7 @@ function buildDefaultLayout(api: DockviewApi): void {
   add('memory-rag', 'Memory / RAG', { referencePanel: 'translation', direction: 'below' });
   add('community-lab', 'Community Lab', { referencePanel: 'memory-rag', direction: 'below' });
   add('metrics', 'Metrics & Latency', { referencePanel: 'logs', direction: 'right' });
+  add('runtime-state', 'Runtime State (event stream)', { referencePanel: 'metrics', direction: 'below' });
 }
 
 function Workstation(): ReactElement {

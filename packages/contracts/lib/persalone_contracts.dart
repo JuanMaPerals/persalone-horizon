@@ -6,5 +6,6 @@ export 'src/capability.dart';
 export 'src/device_adapter.dart';
 export 'src/live_translation.dart';
 export 'src/runtime_error.dart';
+export 'src/runtime_event.dart';
 export 'src/session.dart';
 export 'src/truth_label.dart';
