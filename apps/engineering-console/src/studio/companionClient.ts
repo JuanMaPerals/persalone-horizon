@@ -10,6 +10,8 @@ export type Outcome = 'PASS' | 'FAIL' | 'BLOCKED' | 'SKIPPED' | 'CANCELLED';
 export interface Health {
   readonly status: 'READY' | 'DEGRADED';
   readonly companionVersion: string;
+  /** Canonical read-only runtime event stream (SSE) of app runs. */
+  readonly runtimeEvents?: string;
   readonly components: Readonly<Record<string, { readonly state: ComponentState; readonly reason?: string }>>;
 }
 

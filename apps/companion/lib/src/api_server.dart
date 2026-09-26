@@ -5,6 +5,7 @@ import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:persalone_contracts/persalone_contracts.dart';
+import 'package:persalone_translation_runtime/persalone_translation_runtime.dart';
 
 import 'api_error.dart';
 import 'app_manifest.dart';
@@ -23,7 +24,7 @@ import 'workspace.dart';
 /// and at most 64 KiB. Errors are stable codes that the UI localises.
 final class CompanionApi {
   CompanionApi._(this._server, this.token, this._workspace, this._host,
-      this._tests, this._allowedOrigins);
+      this._tests, this._allowedOrigins, this._events);
 
   static const int maxBodyBytes = 64 * 1024;
 
@@ -33,6 +34,10 @@ final class CompanionApi {
   final AppRunHost _host;
   final HelloDisplayTestRunner _tests;
   final Set<String> _allowedOrigins;
+  final RuntimeEventServer _events;
+
+  /// Read-only canonical runtime event stream (SSE, loopback).
+  Uri get eventsUri => _events.uri;
 
   Uri get uri => Uri(scheme: 'http', host: _server.address.address, port: _server.port);
 
@@ -40,17 +45,25 @@ final class CompanionApi {
     required Workspace workspace,
     required EmulatorConfig emulator,
     int port = 0,
+    int eventsPort = 0,
     Set<String> allowedOrigins = const <String>{},
     String? token,
   }) async {
     final HttpServer server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
+    final AppRunHost host = AppRunHost(workspace, emulator);
+    final RuntimeEventServer events = await RuntimeEventServer.start(
+      host.events.events,
+      port: eventsPort,
+      allowedOrigins: allowedOrigins,
+    );
     final CompanionApi api = CompanionApi._(
       server,
       token ?? _newToken(),
       workspace,
-      AppRunHost(workspace, emulator),
+      host,
       HelloDisplayTestRunner(workspace, emulator),
       allowedOrigins,
+      events,
     );
     server.listen(api._handle);
     return api;
@@ -58,6 +71,8 @@ final class CompanionApi {
 
   Future<void> close() async {
     await _host.dispose();
+    await _events.close();
+    await _host.events.close();
     await _server.close(force: true);
   }
 
@@ -246,6 +261,7 @@ final class CompanionApi {
     return <String, Object?>{
       'status': blocked == null ? 'READY' : 'DEGRADED',
       'companionVersion': companionVersion,
+      'runtimeEvents': eventsUri.toString(),
       'components': <String, Object?>{
         'api': <String, Object?>{'state': 'READY'},
         'emulator': blocked == null

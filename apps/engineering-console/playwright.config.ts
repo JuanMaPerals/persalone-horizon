@@ -20,7 +20,7 @@ export default defineConfig({
   outputDir: process.env.HORIZON_STUDIO_E2E_ARTIFACTS ?? 'test-results',
   webServer: [
     {
-      command: `dart run ../companion/bin/horizon_companion.dart --workspace ${workspace} --port 47811 --python ${python} --bridge ../../tooling/e2e/halo_emulator_bridge.py --allow-origin http://127.0.0.1:5174 --token studio-e2e-token`,
+      command: `dart run ../companion/bin/horizon_companion.dart --workspace ${workspace} --port 47811 --python ${python} --bridge ../../tooling/e2e/halo_emulator_bridge.py --events-port 47813 --allow-origin http://127.0.0.1:5174 --token studio-e2e-token`,
       url: 'http://127.0.0.1:47811/v1/health',
       reuseExistingServer: false,
       timeout: 120_000,

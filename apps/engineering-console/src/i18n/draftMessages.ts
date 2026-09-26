@@ -2,8 +2,9 @@
 // catalogStatus marks them as drafts and the UI says so; they must not be
 // declared finished until reviewed (architecture §4.4).
 import type { Catalog } from './messages';
+import { twinCa, twinDe, twinIt, twinPt } from './twinMessages';
 
-export const de: Catalog = {
+const coreDe = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Eine Halo-App erstellen, im offiziellen Emulator ausführen, testen und exportieren.',
   'studio.language': 'Sprache',
@@ -131,7 +132,7 @@ export const de: Catalog = {
   'error.deviceRefused': 'Das Gerät hat den Befehl abgelehnt ({reason}).',
 };
 
-export const pt: Catalog = {
+const corePt = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Crie uma app para Halo, execute-a no emulador oficial, teste-a e exporte-a.',
   'studio.language': 'Idioma',
@@ -259,7 +260,7 @@ export const pt: Catalog = {
   'error.deviceRefused': 'O dispositivo recusou o comando ({reason}).',
 };
 
-export const it: Catalog = {
+const coreIt = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Crea un’app per Halo, eseguila nell’emulatore ufficiale, testala ed esportala.',
   'studio.language': 'Lingua',
@@ -387,7 +388,7 @@ export const it: Catalog = {
   'error.deviceRefused': 'Il dispositivo ha rifiutato il comando ({reason}).',
 };
 
-export const ca: Catalog = {
+const coreCa = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Crea una app per a Halo, executa-la a l’emulador oficial, prova-la i exporta-la.',
   'studio.language': 'Idioma',
@@ -514,3 +515,7 @@ export const ca: Catalog = {
   'error.buttonGestureInvalid': 'Gest de botó desconegut.',
   'error.deviceRefused': 'El dispositiu ha rebutjat l’ordre ({reason}).',
 };
+export const de: Catalog = { ...coreDe, ...twinDe };
+export const pt: Catalog = { ...corePt, ...twinPt };
+export const it: Catalog = { ...coreIt, ...twinIt };
+export const ca: Catalog = { ...coreCa, ...twinCa };

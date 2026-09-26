@@ -7,7 +7,7 @@ import 'package:persalone_horizon_companion/horizon_companion.dart';
 /// ```text
 /// dart run bin/horizon_companion.dart --workspace DIR
 ///   [--port 47810] [--python VENV_PYTHON] [--bridge halo_emulator_bridge.py]
-///   [--allow-origin http://127.0.0.1:5173]... [--token TOKEN]
+///   [--allow-origin http://127.0.0.1:5173]... [--token TOKEN] [--events-port 47812]
 /// ```
 ///
 /// `--token` fixes the pairing token (automated tests only); by default a
@@ -43,10 +43,11 @@ Future<void> main(List<String> args) async {
       bridgeScript: opts['bridge']?.last,
     ),
     port: int.parse(opts['port']?.last ?? '47810'),
+    eventsPort: int.parse(opts['events-port']?.last ?? '47812'),
     allowedOrigins: origins,
     token: opts['token']?.last,
   );
-  stdout.writeln('HORIZON_COMPANION_READY url=${api.uri} token=${api.token}');
+  stdout.writeln('HORIZON_COMPANION_READY url=${api.uri} token=${api.token} events=${api.eventsUri}');
   unawaited(ProcessSignal.sigint.watch().first.then((_) async {
     await api.close();
     exit(0);

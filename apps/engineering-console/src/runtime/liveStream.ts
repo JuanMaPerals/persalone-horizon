@@ -22,6 +22,8 @@ export interface LiveSnapshot {
   readonly streamId: string | null;
   readonly view: RuntimeView;
   readonly lastSeenSequence: number | null;
+  /** Parsed events, only while LIVE (empty otherwise: fail closed). */
+  readonly events: readonly RuntimeEvent[];
 }
 
 export interface LiveClientOptions {
@@ -86,6 +88,7 @@ export class RuntimeStreamClient {
       streamId: live ? this.streamId : null,
       view,
       lastSeenSequence: this.events.length ? this.events[this.events.length - 1].seq : null,
+      events: live ? [...this.events] : [],
     };
   }
 

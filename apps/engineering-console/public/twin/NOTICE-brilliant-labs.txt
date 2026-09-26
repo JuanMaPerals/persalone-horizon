@@ -1,0 +1,20 @@
+halo.glb is derived from the official Halo 3D model published by Brilliant Labs:
+  https://github.com/brilliantlabsAR/docs/blob/808d31790030f9b939474f949601ca63106978ab/halo/halo.stl
+  sha256 cb5aef98a7b37e4b97eb4a95e6b5d8837ab287e33a97fd97569d0f19420b78f4
+Converted by apps/engineering-console/tools/twin/build-halo-asset.mjs (see halo.asset.json).
+
+ISC License
+
+Copyright © 2024 Brilliant Labs Ltd.
+
+Permission to use, copy, modify, and/or distribute this software for any purpose
+with or without fee is hereby granted, provided that the above copyright notice
+and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH
+REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT,
+INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS
+OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+THIS SOFTWARE.

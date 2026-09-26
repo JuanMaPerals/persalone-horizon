@@ -4,7 +4,9 @@
 // translated. es and en are complete; de, pt, it and ca are complete drafts
 // that have NOT been reviewed by a human linguist (see catalogStatus).
 
-export const en = {
+import { twinEn, twinEs } from './twinMessages';
+
+const coreEn = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Create, run on the official emulator, test and export a Halo app.',
   'studio.language': 'Language',
@@ -141,10 +143,12 @@ export const en = {
   'error.deviceRefused': 'The device refused the command ({reason}).',
 } as const;
 
+export const en = { ...coreEn, ...twinEn } as const;
+
 export type MessageKey = keyof typeof en;
 export type Catalog = { readonly [K in MessageKey]: string };
 
-export const es: Catalog = {
+const coreEs: { readonly [K in keyof typeof coreEn]: string } = {
   'studio.title': 'Hello Halo',
   'studio.subtitle': 'Crea una app de Halo, ejecútala en el emulador oficial, pruébala y expórtala.',
   'studio.language': 'Idioma',
@@ -280,3 +284,5 @@ export const es: Catalog = {
   'error.buttonGestureInvalid': 'Gesto de botón desconocido.',
   'error.deviceRefused': 'El dispositivo rechazó el comando ({reason}).',
 };
+
+export const es: Catalog = { ...coreEs, ...twinEs };

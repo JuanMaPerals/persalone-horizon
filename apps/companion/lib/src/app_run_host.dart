@@ -1,8 +1,11 @@
 import 'dart:async';
 
+import 'package:persalone_contracts/persalone_contracts.dart';
+
 import 'api_error.dart';
 import 'app_manifest.dart';
 import 'emulator_session.dart';
+import 'run_events.dart';
 import 'workspace.dart';
 
 /// State of an interactive app run as reported to Studio.
@@ -20,6 +23,7 @@ final class AppRun {
   final DateTime startedAt;
   RunState state = RunState.running;
   String? stopReason;
+  int _turn = 0;
   final List<Map<String, Object?>> events = <Map<String, Object?>>[];
   int _seq = 0;
   Future<void> _queue = Future<void>.value();
@@ -82,10 +86,14 @@ const Map<String, String> providersV1 = <String, String>{
 /// exclusive device lease, a generation per run, serialized operations and a
 /// Panic that stops everything without waiting for the UI.
 final class AppRunHost {
-  AppRunHost(this._workspace, this._config);
+  AppRunHost(this._workspace, this._config, [RunEventSource? events])
+      : events = events ?? RunEventSource();
 
   final Workspace _workspace;
   final EmulatorConfig _config;
+
+  /// Canonical runtime events of every run (served read-only over SSE).
+  final RunEventSource events;
   final Map<String, AppRun> _runs = <String, AppRun>{};
   AppRun? _leaseHolder;
   int _generation = 0;
@@ -101,15 +109,31 @@ final class AppRunHost {
     final AppRun? previous = _leaseHolder;
     if (previous != null) await stop(previous.runId, reason: 'superseded');
     final int generation = ++_generation;
-    final EmulatorSession session = await EmulatorSession.open(_config,
-        caption: manifest.caption, advanceOn: manifest.advanceOn);
+    final String runId = Workspace.newId('r');
+    events.sessionState(runId, generation, RuntimeSessionState.preparing);
+    final EmulatorSession session;
+    try {
+      session = await EmulatorSession.open(_config,
+          caption: manifest.caption,
+          advanceOn: manifest.advanceOn,
+          // The emulator transport always declares EMULATED.
+          onDeviceSnapshot: (DeviceAdapterSnapshot s) =>
+              events.device(s, ExecutionEnvironment.emulated));
+    } on Object {
+      events.sessionState(runId, generation, RuntimeSessionState.failed);
+      rethrow;
+    }
     if (generation != _generation) {
       // A Panic arrived while the emulator was starting.
       await session.close();
+      events.sessionState(runId, generation, RuntimeSessionState.stopped);
       throw const ApiError(409, 'runCancelledByPanic');
     }
-    final AppRun run = AppRun._(Workspace.newId('r'), projectId,
-        manifest.digest, generation, session, DateTime.now().toUtc());
+    final AppRun run = AppRun._(runId, projectId, manifest.digest, generation,
+        session, DateTime.now().toUtc());
+    events.captionShown(runId, generation, ++run._turn, session.lastShown!,
+        session.environment);
+    events.sessionState(runId, generation, RuntimeSessionState.listening);
     run._event('runStarted', <String, Object?>{'page': 1, 'pageCount': session.pageCount});
     _runs[run.runId] = run;
     _leaseHolder = run;
@@ -121,6 +145,17 @@ final class AppRunHost {
     return run._serial(() async {
       _ensureCurrent(run);
       final ButtonOutcome o = await run.session.press(gesture);
+      for (final String report in o.deviceReports) {
+        events.diagnostic(LiveTranslationDiagnosticCode.inputButton, 'halo-button',
+            runId: run.runId,
+            generation: run.generation,
+            sequence: run._turn,
+            detail: report.startsWith('btn:') ? report.substring(4) : 'unknown');
+      }
+      if (o.advanced) {
+        events.captionShown(run.runId, run.generation, ++run._turn,
+            run.session.lastShown!, run.session.environment);
+      }
       run._event('button', <String, Object?>{
         'gesture': gesture,
         'deviceReports': o.deviceReports,
@@ -142,12 +177,14 @@ final class AppRunHost {
   Future<AppRun> stop(String runId, {String reason = 'userStop'}) async {
     final AppRun run = get(runId);
     if (run.state != RunState.running) return run;
+    events.sessionState(run.runId, run.generation, RuntimeSessionState.stopping);
     await run._serial(() async {
       await run.session.close();
       run.state = RunState.stopped;
       run.stopReason = reason;
       run._event('runStopped', <String, Object?>{'reason': reason});
     });
+    events.sessionState(run.runId, run.generation, RuntimeSessionState.stopped);
     if (identical(_leaseHolder, run)) _leaseHolder = null;
     return run;
   }
@@ -156,6 +193,7 @@ final class AppRunHost {
   /// cancelled), then closes every run and clears its display.
   Future<Map<String, Object?>> panic() async {
     _generation++;
+    events.diagnostic(LiveTranslationDiagnosticCode.panicExecuted, 'companion');
     final List<String> stopped = <String>[];
     for (final AppRun run in _runs.values.toList()) {
       if (run.state == RunState.running) {

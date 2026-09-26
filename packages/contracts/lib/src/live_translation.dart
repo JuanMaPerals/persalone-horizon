@@ -112,6 +112,9 @@ enum LiveTranslationDiagnosticCode {
   /// A final turn arrived while, or just after, the device was speaking a
   /// translation: possible self-echo. A suspicion, not a verdict.
   selfEchoSuspected,
+
+  /// A hardware button gesture reported by the device (detail: gesture).
+  inputButton,
 }
 
 /// Redacted event from a G5 provider or runtime. [detail] must never contain
