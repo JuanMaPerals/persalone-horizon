@@ -57,12 +57,39 @@ void main() {
       expect(transport.calls, isEmpty,
           reason: 'the transport must not be touched without permission');
 
+      // The denial is a policy refusal, reported as such on every caption
+      // (not as a device failure) and without reaching the transport.
       final CaptionDelivery delivery = await path.captions.show(_caption());
-      expect(delivery.status, isNot(CaptionDeliveryStatus.delivered));
-      expect(delivery.truthLabel, anyOf(TruthLabel.blocked, TruthLabel.failed));
-      expect(transport.displayCommands, isEmpty);
+      expect(delivery.status, CaptionDeliveryStatus.blocked);
+      expect(delivery.truthLabel, TruthLabel.blocked);
+      expect(delivery.reason, 'blePermission.${denial.reason}');
+      expect(delivery.environment, ExecutionEnvironment.haloReal);
+      await path.captions.clear(_session);
+      expect(transport.calls, isEmpty);
     });
   }
+
+  test('a later grant lifts the block and delivers again', () async {
+    BlePermissionResult answer =
+        const BlePermissionResult.denied('permissionDenied', <String>['BLUETOOTH_CONNECT']);
+    final HaloCaptionPath path = HaloCaptionPath.compose(
+      enabled: true,
+      transport: () => transport,
+      permission: () async => answer,
+    )!;
+    addTearDown(path.dispose);
+
+    await expectLater(path.connectFirst(), throwsA(isA<HaloPermissionDenied>()));
+    expect((await path.captions.show(_caption())).status,
+        CaptionDeliveryStatus.blocked);
+
+    answer = BlePermissionResult.parse(
+        <Object?, Object?>{'granted': true, 'reason': 'granted'});
+    await path.connectFirst(timeout: const Duration(seconds: 2));
+    final CaptionDelivery delivery = await path.captions.show(_caption());
+    expect(delivery.status, CaptionDeliveryStatus.delivered);
+    expect(delivery.truthLabel, TruthLabel.prepared);
+  });
 
   test('granted opens discovery, but evidence is never promoted', () async {
     final HaloCaptionPath path = compose(BlePermissionResult.parse(

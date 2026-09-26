@@ -72,7 +72,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   /// carry a HALO_REAL label.
   static const bool _haloCaptions = bool.fromEnvironment('HORIZON_HALO_CAPTIONS');
   HaloCaptionPath? _haloPath;
-  String _haloStatus = 'Halo no conectado: subtítulos BLOCKED.';
+  String _haloStatus = 'Halo no conectado: subtítulos FAILED (deviceNotReady).';
 
   late final AndroidMicrophoneAdapter _microphone;
   late final AndroidSpeakerAdapter _speaker;
@@ -268,7 +268,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     } on Object catch (error) {
       if (!mounted) return;
       setState(() => _haloStatus =
-          'Halo no conectado (${error.runtimeType}): subtítulos BLOCKED.');
+          'Halo no conectado (${error.runtimeType}): subtítulos FAILED (deviceNotReady).');
     }
   }
 

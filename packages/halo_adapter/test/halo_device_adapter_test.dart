@@ -278,6 +278,27 @@ void main() {
   group('HaloCaptionOutputAdapter', () {
     const String injection = "]]) frame.display.clear() os.execute('x') --";
 
+    test('the official BLE transport tears down without Bluetooth if it never scanned',
+        () async {
+      // After a denied BLUETOOTH_SCAN nothing was started, so disposal must
+      // not reach the Bluetooth stack at all. flutter_blue_plus logs every
+      // stopScan it receives (even a no-op one), so any reach shows up here.
+      final List<String> bluetoothLog = <String>[];
+      await runZoned(
+        () async {
+          final OfficialBrilliantHaloTransport transport =
+              OfficialBrilliantHaloTransport();
+          await transport.stopDiscovery();
+          await transport.dispose();
+        },
+        zoneSpecification: ZoneSpecification(
+          print: (Zone self, ZoneDelegate parent, Zone zone, String line) =>
+              bluetoothLog.add(line),
+        ),
+      );
+      expect(bluetoothLog, isEmpty);
+    });
+
     test('only the official BLE transport declares HALO_REAL', () {
       expect(OfficialBrilliantHaloTransport().environment,
           ExecutionEnvironment.haloReal);

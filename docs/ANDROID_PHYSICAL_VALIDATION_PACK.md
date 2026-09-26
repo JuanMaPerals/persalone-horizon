@@ -193,7 +193,12 @@ and speech continue:
 |---|---|
 | `permissionDenied (BLUETOOTH_…)` | the person refused one or both; grant them in Android settings and retry |
 | `bleRequiresAndroid12` | Android 11 or older: scanning there needs a location permission this app does not request |
-| `permissionInFlight` / `platformError` / `malformedResponse` | the platform answer could not be trusted; nothing was attempted |
+| `permissionInFlight` | another permission dialog (microphone or Bluetooth) was open; Android runs one at a time, so nothing was asked. Retry |
+| `platformError` / `malformedResponse` | the platform answer could not be trusted; nothing was attempted |
+
+While denied, every caption is logged as `blocked` with reason
+`blePermission.<reason>` (a policy refusal, not a device failure), and the
+Bluetooth transport is never touched, not even when the app closes.
 
 A granted permission is not evidence: HALO_REAL stays BLOCKED_HARDWARE until
 a physical Halo shows the caption and a person records it.

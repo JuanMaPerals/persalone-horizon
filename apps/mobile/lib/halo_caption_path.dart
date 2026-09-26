@@ -24,11 +24,17 @@ final class HaloPermissionDenied implements Exception {
 /// where no physical Halo is present. Every delivery stays at most PREPARED
 /// (a device acknowledgement, not a person seeing the caption).
 final class HaloCaptionPath {
-  HaloCaptionPath._(this.device, this.captions, this._permission);
+  HaloCaptionPath._(this.device, CaptionOutputAdapter captions, this._permission) {
+    this.captions = _PermissionGatedCaptions(captions, () => _denied);
+  }
 
   final HaloDeviceAdapter device;
-  final CaptionOutputAdapter captions;
+  late final CaptionOutputAdapter captions;
   final Future<BlePermissionResult> Function()? _permission;
+
+  /// The last permission answer when it was a denial; while set, every
+  /// caption is BLOCKED by policy and the device is not asked.
+  BlePermissionResult? _denied;
 
   ExecutionEnvironment get environment => captions.environment;
 
@@ -55,6 +61,7 @@ final class HaloCaptionPath {
     final Future<BlePermissionResult> Function()? permission = _permission;
     if (permission != null) {
       final BlePermissionResult result = await permission();
+      _denied = result.granted ? null : result;
       if (!result.granted) throw HaloPermissionDenied(result);
     }
     final Future<DeviceDiscovery> discovered =
@@ -69,4 +76,41 @@ final class HaloCaptionPath {
   }
 
   Future<void> dispose() => device.dispose();
+}
+
+/// Reports a Bluetooth permission denial as a policy-blocked caption (coded
+/// `blePermission.<reason>`), so runtime events and validation logs match the
+/// BLOCKED state the app shows, instead of a device failure.
+final class _PermissionGatedCaptions implements CaptionOutputAdapter {
+  _PermissionGatedCaptions(this._inner, this._denied);
+
+  final CaptionOutputAdapter _inner;
+  final BlePermissionResult? Function() _denied;
+
+  @override
+  ExecutionEnvironment get environment => _inner.environment;
+
+  @override
+  String get adapterId => _inner.adapterId;
+
+  @override
+  Future<CaptionDelivery> show(CaptionUpdate update) async {
+    final BlePermissionResult? denied = _denied();
+    if (denied == null) return _inner.show(update);
+    return CaptionDelivery(
+      session: update.session,
+      sequence: update.sequence,
+      status: CaptionDeliveryStatus.blocked,
+      environment: environment,
+      truthLabel: TruthLabel.blocked,
+      adapterId: adapterId,
+      reason: 'blePermission.${denied.reason}',
+    );
+  }
+
+  @override
+  Future<void> clear(TranslationSession session) async {
+    if (_denied() != null) return;
+    await _inner.clear(session);
+  }
 }

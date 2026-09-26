@@ -219,8 +219,8 @@ class MainActivity : FlutterActivity() {
             result.success(true)
             return
         }
-        if (pendingPermissionResult != null) {
-            result.error("permission_in_flight", "A microphone permission request is already active.", null)
+        if (permissionRequestInFlight()) {
+            result.error("permission_in_flight", "Another runtime permission request is already active.", null)
             return
         }
         pendingPermissionResult = result
@@ -230,6 +230,14 @@ class MainActivity : FlutterActivity() {
             microphonePermissionRequestCode,
         )
     }
+
+    /**
+     * Android runs one runtime-permission request at a time and answers an
+     * overlapping one with empty results, which would read as a denial the
+     * person never gave. Microphone and Bluetooth therefore share this guard.
+     */
+    private fun permissionRequestInFlight(): Boolean =
+        pendingPermissionResult != null || pendingBlePermissionResult != null
 
     private fun isPermissionGranted(permission: String): Boolean =
         ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED
@@ -244,8 +252,8 @@ class MainActivity : FlutterActivity() {
             result.success(BlePermissions.decide(Build.VERSION.SDK_INT, ::isPermissionGranted))
             return
         }
-        if (pendingBlePermissionResult != null) {
-            result.error("permission_in_flight", "A Bluetooth permission request is already active.", null)
+        if (permissionRequestInFlight()) {
+            result.error("permission_in_flight", "Another runtime permission request is already active.", null)
             return
         }
         pendingBlePermissionResult = result
