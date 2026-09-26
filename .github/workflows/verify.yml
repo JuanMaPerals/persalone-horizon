@@ -31,9 +31,11 @@ jobs:
       - name: Unit tests
         run: |
           (cd packages/contracts && dart test)
+          (cd packages/halo_core && dart test)
           (cd packages/halo_adapter && flutter test)
           (cd packages/audio_adapters && flutter test)
           (cd packages/translation_runtime && dart test)
+          (cd apps/companion && dart test)
           (cd apps/mobile && flutter test)
       - name: Repository preflight
         run: bash tooling/preflight.sh --all
@@ -74,6 +76,18 @@ jobs:
           HORIZON_E2E_REQUIRED: '1'
           HORIZON_E2E_ARTIFACTS: ${{ runner.temp }}/e2e-emulated
         run: flutter test test/e2e
+      - name: Official emulator transport (button reporter, framebuffer PNG)
+        working-directory: packages/halo_emulator
+        env:
+          HORIZON_E2E_PYTHON: ${{ runner.temp }}/halo-emulator/bin/python
+          HORIZON_E2E_REQUIRED: '1'
+        run: dart test
+      - name: Studio Companion Hello Halo journey (API, official emulator)
+        working-directory: apps/companion
+        env:
+          HORIZON_E2E_PYTHON: ${{ runner.temp }}/halo-emulator/bin/python
+          HORIZON_E2E_REQUIRED: '1'
+        run: dart test
       - name: Upload emulated framebuffer evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -118,6 +132,63 @@ jobs:
           path: apps/mobile/build/app/outputs/flutter-apk/app-debug.apk
           if-no-files-found: error
           retention-days: 14
+
+  studio-e2e:
+    name: studio-e2e
+    # V1 gate: a real browser drives the Console "Hello Halo" panel against a
+    # real Companion and the official emulator (EMULATED, never HALO_REAL).
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Flutter (Dart for the Companion)
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          cache: true
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install official halo-emulator (pinned SDK revision)
+        run: |
+          python -m venv "$RUNNER_TEMP/halo-emulator"
+          "$RUNNER_TEMP/halo-emulator/bin/pip" install -r tooling/e2e/requirements-halo-emulator.txt
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: apps/engineering-console/pnpm-lock.yaml
+      - name: Resolve Dart packages
+        run: flutter pub get
+      - name: Install Console
+        working-directory: apps/engineering-console
+        run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Playwright
+        working-directory: apps/engineering-console
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Hello Halo UI journey (Console + Companion + official emulator)
+        working-directory: apps/engineering-console
+        env:
+          HORIZON_E2E_PYTHON: ${{ runner.temp }}/halo-emulator/bin/python
+          HORIZON_STUDIO_E2E_ARTIFACTS: ${{ runner.temp }}/studio-e2e
+          HORIZON_STUDIO_E2E_WORKSPACE: ${{ runner.temp }}/studio-e2e-workspace
+        run: pnpm exec playwright test
+      - name: Upload Studio journey screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: studio-hello-halo-journey
+          path: ${{ runner.temp }}/studio-e2e
+          if-no-files-found: warn
 
   console:
     name: console

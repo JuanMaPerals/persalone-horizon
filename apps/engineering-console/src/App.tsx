@@ -6,15 +6,17 @@ import { activeTraceSource } from './types/trace';
 
 import 'dockview-react/dist/styles/dockview.css';
 
-const layoutStorageKey = 'persalone.halo.engineering-console.v2.layout';
+// v3: adds the Studio "Hello Halo" panel to the default layout.
+const layoutStorageKey = 'persalone.halo.engineering-console.v3.layout';
 
 interface PanelDefinition {
   readonly id: ConsolePanelId;
   readonly title: string;
-  readonly group: 'Observe' | 'Inspect' | 'Systems';
+  readonly group: 'Build' | 'Observe' | 'Inspect' | 'Systems';
 }
 
 const panels: readonly PanelDefinition[] = [
+  { id: 'hello-halo', title: 'Hello Halo (Studio)', group: 'Build' },
   { id: 'execution-graph', title: 'Execution Graph', group: 'Observe' },
   { id: 'timeline', title: 'Timeline & Replay', group: 'Observe' },
   { id: 'logs', title: 'Trace Logs', group: 'Observe' },
@@ -67,7 +69,8 @@ function CommandPalette({ api, onClose }: { readonly api: DockviewApi | null; re
 
 function buildDefaultLayout(api: DockviewApi): void {
   const add = (id: ConsolePanelId, title: string, position?: Parameters<DockviewApi['addPanel']>[0]['position']) => api.addPanel({ id, component: 'panel', title, params: { panelId: id }, position });
-  add('execution-graph', 'Execution Graph');
+  add('hello-halo', 'Hello Halo (Studio)');
+  add('execution-graph', 'Execution Graph', { referencePanel: 'hello-halo', direction: 'within' });
   add('inspector', 'Inspector', { referencePanel: 'execution-graph', direction: 'right' });
   add('timeline', 'Timeline & Replay', { referencePanel: 'execution-graph', direction: 'below' });
   add('logs', 'Trace Logs', { referencePanel: 'timeline', direction: 'below' });

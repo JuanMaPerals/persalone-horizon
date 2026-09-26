@@ -3,6 +3,7 @@ import { type ReactElement, useEffect, useMemo } from 'react';
 import { isSensitiveAttribute, type HaloTraceEvent } from '../types/trace';
 import { useTraceSnapshot, useTraceStore } from '../store/TraceStoreContext';
 import { CommunityLab } from './CommunityLab';
+import { HelloHaloPanel } from './HelloHaloPanel';
 import { RuntimeStatePanel } from './RuntimeStatePanel';
 
 export type ConsolePanelId =
@@ -15,7 +16,8 @@ export type ConsolePanelId =
   | 'memory-rag'
   | 'metrics'
   | 'community-lab'
-  | 'runtime-state';
+  | 'runtime-state'
+  | 'hello-halo';
 
 interface ConsolePanelProps {
   readonly panelId: ConsolePanelId;
@@ -267,5 +269,6 @@ export function ConsolePanel({ panelId }: ConsolePanelProps): ReactElement {
     case 'metrics': return <Metrics />;
     case 'community-lab': return <CommunityLab />;
     case 'runtime-state': return <RuntimeStatePanel />;
+    case 'hello-halo': return <HelloHaloPanel />;
   }
 }

@@ -4,9 +4,12 @@ description: Local-first mobile translation runtime workspace for PersalOne Halo
 environment:
   sdk: ^3.6.0
 workspace:
+  - apps/companion
   - apps/mobile
   - packages/contracts
   - packages/halo_adapter
+  - packages/halo_core
+  - packages/halo_emulator
   - packages/audio_adapters
   - packages/translation_runtime
 dev_dependencies:

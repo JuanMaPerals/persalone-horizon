@@ -6,9 +6,9 @@ import 'package:brilliant_msg/brilliant_msg.dart' show RxAudio;
 import 'package:persalone_contracts/persalone_contracts.dart'
     show ExecutionEnvironment;
 
+import 'package:persalone_halo_core/persalone_halo_core.dart';
+
 import 'halo_audio_transport.dart';
-import 'halo_bounded_display.dart';
-import 'halo_transport.dart';
 
 /// Official Brilliant SDK transport, deliberately limited to the safe G2
 /// surface. The device-side USERDATA application protocol is not enabled here
