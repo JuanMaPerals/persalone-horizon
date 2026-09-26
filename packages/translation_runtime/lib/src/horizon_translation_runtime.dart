@@ -79,6 +79,8 @@ final class HorizonTranslationRuntime {
   bool _disposed = false;
   int _turnCounter = 0;
   int _lastDeliveredTurn = 0;
+  TranslationSession? _lastSession;
+  Future<List<String>>? _panicInFlight;
 
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
@@ -130,6 +132,7 @@ final class HorizonTranslationRuntime {
     }
 
     _config = config;
+    _lastSession = config.session;
     _setState(HorizonTranslationRuntimeState.preparing);
     _bindProviderDiagnostics();
     try {
@@ -167,9 +170,46 @@ final class HorizonTranslationRuntime {
       );
       _setState(HorizonTranslationRuntimeState.listening);
     } on Object catch (error, stackTrace) {
-      await _fail(error, stackTrace);
+      if (_isCurrent(config.session)) {
+        await _fail(error, stackTrace);
+      } else if (_config == null) {
+        // Stop or Panic superseded this start while a provider call was in
+        // flight; that call (e.g. microphone start) may have completed after
+        // their cleanup ran, so tear down again. A newer session owns the
+        // resources otherwise and is left untouched.
+        await _stopActiveResourcesAfterFailure(config.session);
+      }
       rethrow;
     }
+  }
+
+  /// Emergency stop. Valid from every state and idempotent: it invalidates
+  /// all in-flight session and turn work first (late translations, captions
+  /// and TTS become stale), then stops microphone, STT and TTS and clears the
+  /// display best-effort. Outstanding translation calls cannot be aborted in
+  /// the provider; their results are discarded. Returns the components whose
+  /// cleanup threw; the remaining safety actions still ran.
+  Future<List<String>> panic() =>
+      _panicInFlight ??= _runPanic().whenComplete(() => _panicInFlight = null);
+
+  Future<List<String>> _runPanic() async {
+    if (_disposed) {
+      return const <String>[];
+    }
+    final TranslationSession? session = _config?.session ?? _lastSession;
+    _config = null;
+    final List<String> failed = await _stopActiveResourcesAfterFailure(session);
+    if (_state != HorizonTranslationRuntimeState.idle) {
+      _setState(HorizonTranslationRuntimeState.stopped);
+    }
+    _emitDiagnostic(
+      failed.isEmpty
+          ? LiveTranslationDiagnosticCode.panicExecuted
+          : LiveTranslationDiagnosticCode.cleanupFailed,
+      component: 'runtime',
+      detail: failed.isEmpty ? null : failed.join('.'),
+    );
+    return failed;
   }
 
   Future<void> stop() async {
@@ -474,7 +514,10 @@ final class HorizonTranslationRuntime {
     await _stopActiveResourcesAfterFailure(session);
   }
 
-  Future<void> _stopActiveResourcesAfterFailure(
+  /// Best-effort teardown: every step runs even if an earlier one throws, so one
+  /// broken component cannot leave the microphone, TTS or display active.
+  /// Returns the components whose cleanup threw.
+  Future<List<String>> _stopActiveResourcesAfterFailure(
     TranslationSession? session,
   ) async {
     final frameSubscription = _frameSubscription;
@@ -487,31 +530,33 @@ final class HorizonTranslationRuntime {
     );
     _providerDiagnosticSubscriptions.clear();
 
-    Future<void> bestEffort(Future<void> Function() operation) async {
+    final List<String> failed = <String>[];
+    Future<void> bestEffort(
+        String component, Future<void> Function() operation) async {
       try {
         await operation();
       } on Object {
-        // The runtime is already failed. Teardown continues so one broken
-        // provider cannot leave the microphone or another provider active.
+        failed.add(component);
       }
     }
 
     if (frameSubscription != null) {
-      await bestEffort(frameSubscription.cancel);
+      await bestEffort('frames', frameSubscription.cancel);
     }
     if (transcriptSubscription != null) {
-      await bestEffort(transcriptSubscription.cancel);
+      await bestEffort('transcripts', transcriptSubscription.cancel);
     }
     for (final subscription in diagnosticSubscriptions) {
-      await bestEffort(subscription.cancel);
+      await bestEffort('diagnostics', subscription.cancel);
     }
-    await bestEffort(_input.stop);
-    await bestEffort(_stt.stop);
-    await bestEffort(_synthesizer.stop);
+    await bestEffort('input', _input.stop);
+    await bestEffort('stt', _stt.stop);
+    await bestEffort('tts', _synthesizer.stop);
     final captions = _captions;
     if (session != null && captions != null) {
-      await bestEffort(() => captions.clear(session));
+      await bestEffort('captions', () => captions.clear(session));
     }
+    return failed;
   }
 
   void _setState(
