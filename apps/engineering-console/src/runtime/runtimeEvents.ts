@@ -8,6 +8,7 @@ export type ExecutionEnvironment = 'SIMULATED' | 'EMULATED' | 'PC_REAL' | 'HALO_
 export type Truth = 'SIMULATED' | 'PREPARED' | 'MEASURED' | 'BLOCKED' | 'FAILED';
 export type SessionState = 'idle' | 'preparing' | 'listening' | 'stopping' | 'stopped' | 'failed' | 'disposed';
 export type CaptionStatus = 'delivered' | 'blocked' | 'failed';
+export type DeviceState = 'idle' | 'discovering' | 'connecting' | 'ready' | 'disconnecting' | 'disconnected' | 'failed';
 
 interface EventBase {
   readonly seq: number;
@@ -39,17 +40,27 @@ export interface DiagnosticEvent extends EventBase {
   readonly detail: string | null;
 }
 
-export type RuntimeEvent = SessionStateEvent | CaptionEvent | DiagnosticEvent;
+export interface DeviceStateEvent extends EventBase {
+  readonly kind: 'deviceState';
+  readonly state: DeviceState;
+  readonly adapter: string | null;
+  readonly environment: ExecutionEnvironment;
+  readonly truth: Truth;
+}
+
+export type RuntimeEvent = SessionStateEvent | CaptionEvent | DiagnosticEvent | DeviceStateEvent;
 
 const environments: readonly ExecutionEnvironment[] = ['SIMULATED', 'EMULATED', 'PC_REAL', 'HALO_REAL'];
 const truths: readonly Truth[] = ['SIMULATED', 'PREPARED', 'MEASURED', 'BLOCKED', 'FAILED'];
 const states: readonly SessionState[] = ['idle', 'preparing', 'listening', 'stopping', 'stopped', 'failed', 'disposed'];
 const captionStatuses: readonly CaptionStatus[] = ['delivered', 'blocked', 'failed'];
+const deviceStates: readonly DeviceState[] = ['idle', 'discovering', 'connecting', 'ready', 'disconnecting', 'disconnected', 'failed'];
 const baseKeys = ['schema', 'seq', 'atMicros', 'kind', 'session'];
 const keysByKind: Record<RuntimeEvent['kind'], readonly string[]> = {
   sessionState: [...baseKeys, 'state', 'failureCode'],
   caption: [...baseKeys, 'turn', 'status', 'environment', 'truth', 'adapter', 'reason'],
   diagnostic: [...baseKeys, 'code', 'component', 'turn', 'detail'],
+  deviceState: [...baseKeys, 'state', 'adapter', 'environment', 'truth'],
 };
 const token = /^[A-Za-z0-9_.:-]{1,64}$/;
 
@@ -90,7 +101,7 @@ export function parseRuntimeEventLine(line: string): RuntimeEvent {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) fail('event must be an object');
   const record = raw as Record<string, unknown>;
   if (record.schema !== RUNTIME_EVENT_SCHEMA) fail('unsupported schema');
-  const kind = oneOf(record.kind, ['sessionState', 'caption', 'diagnostic'] as const, 'kind');
+  const kind = oneOf(record.kind, ['sessionState', 'caption', 'diagnostic', 'deviceState'] as const, 'kind');
   const expected = keysByKind[kind];
   const keys = Object.keys(record);
   if (keys.length !== expected.length || keys.some((key) => !expected.includes(key))) fail(`unexpected fields for ${kind}`);
@@ -126,6 +137,15 @@ export function parseRuntimeEventLine(line: string): RuntimeEvent {
         turn: optionalInt(record.turn, 'turn'),
         detail: optionalToken(record.detail, 'detail'),
       };
+    case 'deviceState':
+      return {
+        ...base,
+        kind,
+        state: oneOf(record.state, deviceStates, 'state'),
+        adapter: optionalToken(record.adapter, 'adapter'),
+        environment: oneOf(record.environment, environments, 'environment'),
+        truth: oneOf(record.truth, truths, 'truth'),
+      };
   }
 }
 
@@ -160,6 +180,10 @@ export interface RuntimeView {
   /** Evidence label of the last caption, kept separate from the environment. */
   readonly captionTruth: Known<Truth>;
   readonly lastError: { readonly code: string; readonly component: string | null; readonly detail: string | null } | null;
+  readonly deviceState: Known<DeviceState>;
+  /** Execution path of the device link (fixture, emulator or hardware). */
+  readonly deviceEnvironment: Known<ExecutionEnvironment>;
+  readonly deviceTruth: Known<Truth>;
   readonly errorCount: number;
   readonly lastSequence: number | null;
   readonly sequenceGaps: number;
@@ -177,6 +201,9 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
   let captionEnvironment: Known<ExecutionEnvironment> = 'UNKNOWN';
   let captionTruth: Known<Truth> = 'UNKNOWN';
   let lastError: RuntimeView['lastError'] = null;
+  let deviceState: Known<DeviceState> = 'UNKNOWN';
+  let deviceEnvironment: Known<ExecutionEnvironment> = 'UNKNOWN';
+  let deviceTruth: Known<Truth> = 'UNKNOWN';
   let errorCount = 0;
   let lastSequence: number | null = null;
   let sequenceGaps = 0;
@@ -196,6 +223,11 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
         captionEnvironment = event.environment;
         captionTruth = event.truth;
         break;
+      case 'deviceState':
+        deviceState = event.state;
+        deviceEnvironment = event.environment;
+        deviceTruth = event.truth;
+        break;
       case 'diagnostic':
         if (errorCodes.has(event.code)) {
           errorCount += 1;
@@ -212,6 +244,9 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
     captionEnvironment,
     captionTruth,
     lastError,
+    deviceState,
+    deviceEnvironment,
+    deviceTruth,
     errorCount,
     lastSequence,
     sequenceGaps,
