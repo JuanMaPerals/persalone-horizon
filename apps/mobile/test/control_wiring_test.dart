@@ -95,6 +95,9 @@ final class _FakeControl implements RuntimeControlPort {
   String? get activeSessionId => null;
 
   @override
+  int get sessionGeneration => 0;
+
+  @override
   Future<CommandResult> execute(RuntimeCommand command) async {
     commands.add(command);
     if (command is SetLanguageCommand) pending = command.direction;

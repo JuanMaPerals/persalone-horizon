@@ -85,6 +85,55 @@ void main() {
 
       expect((await diagnostic).value, 2);
     });
+
+    test('platform capture_started reports the A/B source, not an error',
+        () async {
+      final _FakeBridge bridge = _FakeBridge(permissionGranted: true);
+      final AndroidMicrophoneAdapter adapter = AndroidMicrophoneAdapter(
+        bridge: bridge,
+        nowMicros: () => 400,
+      );
+      addTearDown(adapter.dispose);
+      final List<AudioDiagnostic> diagnostics = <AudioDiagnostic>[];
+      adapter.diagnostics.listen(diagnostics.add);
+      await adapter.requestPermission();
+      await adapter.start(session, AudioFormat.voice16kMono);
+      final Future<AndroidCaptureConfig> reported = adapter.captureConfigs.first;
+      bridge
+        ..emitInput(<Object?, Object?>{
+          'type': 'capture_started',
+          'audioSource': 'voiceCommunication',
+          'aecAvailable': true,
+          'aecEnabled': true,
+          'nsAvailable': false,
+          'sampleRateHz': 16000,
+        })
+        ..emitInput(<Object?, Object?>{'type': 'capture_stopped'});
+
+      final AndroidCaptureConfig config = await reported;
+      expect(config.audioSource, 'voiceCommunication');
+      expect(config.echoCancelerEnabled, isTrue);
+      expect(adapter.captureConfig?.toJson(), <String, Object>{
+        'audioSource': 'voiceCommunication',
+        'aecAvailable': true,
+        'aecEnabled': true,
+        'nsAvailable': false,
+      });
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        diagnostics.where(
+            (d) => d.code == AudioDiagnosticCode.captureReadError),
+        isEmpty,
+        reason: 'capture_started/stopped were misreported as read errors',
+      );
+    });
+
+    test('an unknown source label is recorded as unknown, never guessed', () {
+      final AndroidCaptureConfig config = AndroidCaptureConfig.fromEvent(
+          <Object?, Object?>{'type': 'capture_started', 'audioSource': 'raw'});
+      expect(config.audioSource, 'unknown');
+      expect(config.echoCancelerEnabled, isFalse);
+    });
   });
 }
 

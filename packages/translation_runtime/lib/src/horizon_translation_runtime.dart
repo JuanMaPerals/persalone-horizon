@@ -45,12 +45,17 @@ final class HorizonTranslationRuntime {
     required SpeechSynthesisProvider synthesizer,
     CaptionOutputAdapter? captions,
     DateTime Function()? clock,
+    int Function()? monotonicMicros,
   })  : _input = input,
         _stt = stt,
         _translator = translator,
         _synthesizer = synthesizer,
         _captions = captions,
-        _clock = clock ?? DateTime.now;
+        _clock = clock ?? DateTime.now,
+        _monotonicMicros = monotonicMicros ?? _defaultMonotonicMicros;
+
+  static final Stopwatch _monotonic = Stopwatch()..start();
+  static int _defaultMonotonicMicros() => _monotonic.elapsedMicroseconds;
 
   final AudioInputAdapter _input;
   final StreamingSttProvider _stt;
@@ -58,6 +63,9 @@ final class HorizonTranslationRuntime {
   final SpeechSynthesisProvider _synthesizer;
   final CaptionOutputAdapter? _captions;
   final DateTime Function() _clock;
+
+  /// Latency is measured only on this clock; wall-clock time can jump.
+  final int Function() _monotonicMicros;
 
   final StreamController<HorizonTranslationRuntimeSnapshot> _snapshots =
       StreamController<HorizonTranslationRuntimeSnapshot>.broadcast();
@@ -69,6 +77,8 @@ final class HorizonTranslationRuntime {
       StreamController<TranslationSegment>.broadcast();
   final StreamController<CaptionDelivery> _captionDeliveries =
       StreamController<CaptionDelivery>.broadcast();
+  final StreamController<TurnLatencySample> _latencies =
+      StreamController<TurnLatencySample>.broadcast();
 
   StreamSubscription<AudioFrame>? _frameSubscription;
   StreamSubscription<TranscriptSegment>? _transcriptSubscription;
@@ -82,11 +92,22 @@ final class HorizonTranslationRuntime {
   TranslationSession? _lastSession;
   Future<List<String>>? _panicInFlight;
 
+  /// Self-echo watch: when the synthesizer reported speaking, and what was
+  /// last handed to it. The text stays in memory and never leaves the runtime.
+  static const int selfEchoTailMicros = 1500000;
+  static const int maxSpeakingMicros = 30000000;
+  int? _speakingSinceMicros;
+  int? _speechDoneAtMicros;
+  String? _lastSpokenText;
+
   Stream<HorizonTranslationRuntimeSnapshot> get snapshots => _snapshots.stream;
   Stream<LiveTranslationDiagnostic> get diagnostics => _diagnostics.stream;
   Stream<TranscriptSegment> get transcripts => _transcripts.stream;
   Stream<TranslationSegment> get translations => _translations.stream;
   Stream<CaptionDelivery> get captionDeliveries => _captionDeliveries.stream;
+
+  /// Measured intervals of current-session turns; stale turns emit nothing.
+  Stream<TurnLatencySample> get latencies => _latencies.stream;
   HorizonTranslationRuntimeState get state => _state;
 
   int get _nowMicros => _clock().microsecondsSinceEpoch;
@@ -133,6 +154,9 @@ final class HorizonTranslationRuntime {
 
     _config = config;
     _lastSession = config.session;
+    _speakingSinceMicros = null;
+    _speechDoneAtMicros = null;
+    _lastSpokenText = null;
     _setState(HorizonTranslationRuntimeState.preparing);
     _bindProviderDiagnostics();
     try {
@@ -240,6 +264,7 @@ final class HorizonTranslationRuntime {
     await _transcripts.close();
     await _translations.close();
     await _captionDeliveries.close();
+    await _latencies.close();
     _state = HorizonTranslationRuntimeState.disposed;
   }
 
@@ -296,13 +321,25 @@ final class HorizonTranslationRuntime {
       component: 'stt',
       sequence: segment.sequence,
     );
+    if (segment.stability == TranscriptStability.finalResult) {
+      final int? speechEndedAt = segment.speechEndedAtMicros;
+      if (speechEndedAt != null) {
+        // Both ends come from the provider's own clock.
+        _recordLatency(TurnLatencyStage.speechEndToFinal, segment.sequence,
+            segment.observedAtMicros - speechEndedAt);
+      }
+      _checkSelfEcho(segment);
+    }
     if (segment.stability == TranscriptStability.finalResult &&
         segment.text.trim().isNotEmpty) {
-      unawaited(_translateAndSpeak(segment));
+      unawaited(_translateAndSpeak(segment, _monotonicMicros()));
     }
   }
 
-  Future<void> _translateAndSpeak(TranscriptSegment transcript) async {
+  Future<void> _translateAndSpeak(
+    TranscriptSegment transcript,
+    int finalAtMicros,
+  ) async {
     final session = transcript.session;
     final turn = ++_turnCounter;
     if (!_isCurrent(session)) {
@@ -313,6 +350,7 @@ final class HorizonTranslationRuntime {
       // A new final turn interrupts prior synthesis before its own translation
       // can be spoken. This is the G5 barge-in boundary.
       await _synthesizer.stop();
+      _markSpeechDone();
       if (!_isCurrent(session)) {
         _discardStale('tts', transcript.sequence);
         return;
@@ -327,6 +365,9 @@ final class HorizonTranslationRuntime {
         return;
       }
       _lastDeliveredTurn = turn;
+      final int translatedAtMicros = _monotonicMicros();
+      _recordLatency(TurnLatencyStage.finalToTranslation, translation.sequence,
+          translatedAtMicros - finalAtMicros);
       _translations.add(translation);
       _emitDiagnostic(
         LiveTranslationDiagnosticCode.translationCompleted,
@@ -335,17 +376,30 @@ final class HorizonTranslationRuntime {
       );
       final captions = _captions;
       if (captions != null) {
-        await _deliverCaption(captions, translation);
+        final CaptionDelivery? delivery =
+            await _deliverCaption(captions, translation);
         if (!_isCurrent(session) || turn != _lastDeliveredTurn) {
           _discardStale('tts', translation.sequence);
           return;
         }
+        if (delivery?.status == CaptionDeliveryStatus.delivered) {
+          final int shownAtMicros = _monotonicMicros();
+          _recordLatency(TurnLatencyStage.translationToCaption,
+              translation.sequence, shownAtMicros - translatedAtMicros,
+              environment: delivery!.environment);
+          _recordLatency(TurnLatencyStage.finalToCaption, translation.sequence,
+              shownAtMicros - finalAtMicros,
+              environment: delivery.environment);
+        }
       }
+      _lastSpokenText = translation.translatedText;
       await _synthesizer.speak(translation);
       if (!_isCurrent(session)) {
         _discardStale('tts', translation.sequence);
         return;
       }
+      _recordLatency(TurnLatencyStage.finalToSpeechQueued, translation.sequence,
+          _monotonicMicros() - finalAtMicros);
       // Completion is emitted only by the platform TTS progress callback. A
       // successful speak call merely confirms that Android accepted the queue.
     } on Object catch (error, stackTrace) {
@@ -362,7 +416,8 @@ final class HorizonTranslationRuntime {
     }
   }
 
-  Future<void> _deliverCaption(
+  /// Returns the delivery, or null when the session ended while rendering.
+  Future<CaptionDelivery?> _deliverCaption(
     CaptionOutputAdapter captions,
     TranslationSegment translation,
   ) async {
@@ -392,7 +447,7 @@ final class HorizonTranslationRuntime {
       } on Object {
         // Teardown already ran; a failed late clear is reported as stale only.
       }
-      return;
+      return null;
     }
     if (!_captionDeliveries.isClosed) {
       _captionDeliveries.add(delivery);
@@ -410,6 +465,80 @@ final class HorizonTranslationRuntime {
       sequence: translation.sequence,
       detail: delivery.reason,
     );
+    return delivery;
+  }
+
+  void _onProviderDiagnostic(LiveTranslationDiagnostic diagnostic) {
+    switch (diagnostic.code) {
+      case LiveTranslationDiagnosticCode.synthesisStarted:
+        _speakingSinceMicros ??= _monotonicMicros();
+      case LiveTranslationDiagnosticCode.synthesisCompleted:
+      case LiveTranslationDiagnosticCode.synthesisFailed:
+        _markSpeechDone();
+      default:
+        break;
+    }
+    if (!_diagnostics.isClosed) _diagnostics.add(diagnostic);
+  }
+
+  void _markSpeechDone() {
+    if (_speakingSinceMicros == null) return;
+    _speakingSinceMicros = null;
+    _speechDoneAtMicros = _monotonicMicros();
+  }
+
+  /// Flags a final turn that arrived while the synthesizer reported speaking
+  /// (or within [selfEchoTailMicros] after it stopped): the microphone may
+  /// have captured the device's own translation. Only a coded diagnostic is
+  /// emitted; the turn is processed as usual (it may be a genuine barge-in).
+  void _checkSelfEcho(TranscriptSegment segment) {
+    final int now = _monotonicMicros();
+    final int? since = _speakingSinceMicros;
+    if (since != null && now - since > maxSpeakingMicros) {
+      // No completion was reported; assume speech ended at the cap rather
+      // than now, so the timeout itself does not look like a recent end.
+      _speakingSinceMicros = null;
+      _speechDoneAtMicros = since + maxSpeakingMicros;
+    }
+    final bool speaking = _speakingSinceMicros != null;
+    final int? doneAt = _speechDoneAtMicros;
+    final bool justSpoke = doneAt != null && now - doneAt <= selfEchoTailMicros;
+    if (!speaking && !justSpoke) return;
+    final bool overlap = tokenOverlap(segment.text, _lastSpokenText) >= 0.5;
+    _emitDiagnostic(
+      LiveTranslationDiagnosticCode.selfEchoSuspected,
+      component: 'runtime',
+      sequence: segment.sequence,
+      detail: '${speaking ? 'duringTts' : 'afterTts'}'
+          '${overlap ? '.textOverlap' : ''}',
+    );
+  }
+
+  /// Share of the heard words (2+ letters) that also appear in [spoken].
+  static double tokenOverlap(String heard, String? spoken) {
+    if (spoken == null) return 0;
+    Set<String> words(String value) => value
+        .toLowerCase()
+        .split(RegExp(r'[^\p{L}\p{N}]+', unicode: true))
+        .where((String w) => w.length > 1)
+        .toSet();
+    final Set<String> a = words(heard);
+    final Set<String> b = words(spoken);
+    if (a.length < 2 || b.isEmpty) return 0;
+    return a.intersection(b).length / a.length;
+  }
+
+  void _recordLatency(TurnLatencyStage stage, int turn, int micros,
+      {ExecutionEnvironment? environment}) {
+    // A negative interval means the clock is not monotonic: report nothing
+    // rather than a fabricated value.
+    if (micros < 0 || _latencies.isClosed) return;
+    _latencies.add(TurnLatencySample(
+      stage: stage,
+      turn: turn,
+      micros: micros,
+      environment: environment,
+    ));
   }
 
   CaptionDelivery _failedCaption(
@@ -439,6 +568,7 @@ final class HorizonTranslationRuntime {
     await _input.stop();
     await _stt.stop();
     await _synthesizer.stop();
+    _markSpeechDone();
     final captions = _captions;
     if (session != null && captions != null) {
       try {
@@ -463,7 +593,8 @@ final class HorizonTranslationRuntime {
       _translator.diagnostics,
       _synthesizer.diagnostics
     ]) {
-      _providerDiagnosticSubscriptions.add(provider.listen(_diagnostics.add));
+      _providerDiagnosticSubscriptions
+          .add(provider.listen(_onProviderDiagnostic));
     }
   }
 

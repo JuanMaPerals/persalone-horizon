@@ -68,6 +68,90 @@ void main() {
       );
       expect(bridge.pushedPcm, isEmpty);
     });
+
+    test('attaches the platform end of speech to the next final result',
+        () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidSpeechRecognizerProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config, AudioFormat.voice16kMono);
+      final codes = <LiveTranslationDiagnosticCode>[];
+      provider.diagnostics.listen((d) => codes.add(d.code));
+      final segments = <TranscriptSegment>[];
+      provider.transcripts.listen(segments.add);
+      Map<Object?, Object?> event(String type, int at, {int? sequence}) =>
+          <Object?, Object?>{
+            'type': type,
+            'sessionId': config.session.sessionId,
+            'streamEpoch': config.session.streamEpoch,
+            'observedAtMicros': at,
+            if (sequence != null) 'sequence': sequence,
+            if (sequence != null) 'text': 'private test text',
+          };
+
+      bridge.sttController
+        ..add(event('speechStarted', 100))
+        ..add(event('speechEnded', 800))
+        ..add(event('partial', 850, sequence: 1))
+        ..add(event('final', 1300, sequence: 2))
+        ..add(event('final', 2000, sequence: 3));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(segments.map((s) => s.speechEndedAtMicros),
+          <int?>[null, 800, null],
+          reason: 'partials never carry it; it is used by one final only');
+      expect(codes, containsAllInOrder(<LiveTranslationDiagnosticCode>[
+        LiveTranslationDiagnosticCode.speechStarted,
+        LiveTranslationDiagnosticCode.speechEnded,
+      ]));
+    });
+
+    test('a new utterance discards an older end of speech', () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidSpeechRecognizerProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config, AudioFormat.voice16kMono);
+      final segment = provider.transcripts.first;
+      for (final e in <Map<Object?, Object?>>[
+        {'type': 'speechEnded', 'observedAtMicros': 500},
+        {'type': 'speechStarted', 'observedAtMicros': 900},
+        {'type': 'final', 'observedAtMicros': 1500, 'sequence': 1, 'text': 'x'},
+      ]) {
+        bridge.sttController.add(<Object?, Object?>{
+          ...e,
+          'sessionId': config.session.sessionId,
+          'streamEpoch': config.session.streamEpoch,
+        });
+      }
+      expect((await segment).speechEndedAtMicros, isNull);
+    });
+
+    test('speech boundaries from another epoch are discarded', () async {
+      final bridge = _FakeLiveTranslationBridge();
+      final provider = AndroidSpeechRecognizerProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      final config = _config();
+      await provider.prepare(config, AudioFormat.voice16kMono);
+      final segment = provider.transcripts.first;
+      bridge.sttController
+        ..add(<Object?, Object?>{
+          'type': 'speechEnded',
+          'sessionId': config.session.sessionId,
+          'streamEpoch': config.session.streamEpoch + 1,
+          'observedAtMicros': 700,
+        })
+        ..add(<Object?, Object?>{
+          'type': 'final',
+          'sessionId': config.session.sessionId,
+          'streamEpoch': config.session.streamEpoch,
+          'observedAtMicros': 1500,
+          'sequence': 1,
+          'text': 'x',
+        });
+      expect((await segment).speechEndedAtMicros, isNull);
+    });
   });
 
   group('MlKitOnDeviceTranslatorProvider', () {

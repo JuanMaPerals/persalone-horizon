@@ -3,11 +3,12 @@ import 'device_adapter.dart';
 import 'live_translation.dart';
 import 'runtime_error.dart';
 import 'truth_label.dart';
+import 'turn_latency.dart';
 
 /// Wire schema of the redacted runtime event stream. Bump on breaking change.
 const String runtimeEventSchema = 'horizon.runtime-event.v1';
 
-enum RuntimeEventKind { sessionState, caption, diagnostic, deviceState }
+enum RuntimeEventKind { sessionState, caption, diagnostic, deviceState, latency }
 
 /// Session lifecycle as observed on the stream; mirrors the G5 runtime states
 /// without making contracts depend on the runtime package.
@@ -42,6 +43,8 @@ final class RuntimeEvent {
     this.component,
     this.detail,
     this.deviceState,
+    this.latencyStage,
+    this.latencyMicros,
   });
 
   factory RuntimeEvent.sessionState({
@@ -116,6 +119,27 @@ final class RuntimeEvent {
         truthLabel: snapshot.truthLabel,
       );
 
+  /// One measured turn interval (monotonic clock). The wire truth is always
+  /// MEASURED; [environment] says what was measured, or null when unknown.
+  factory RuntimeEvent.latency({
+    required int streamSequence,
+    required int observedAtMicros,
+    required TurnLatencySample sample,
+    String? sessionId,
+    int? streamEpoch,
+  }) =>
+      RuntimeEvent._(
+        kind: RuntimeEventKind.latency,
+        streamSequence: streamSequence,
+        observedAtMicros: observedAtMicros,
+        sessionId: sessionId,
+        streamEpoch: streamEpoch,
+        turnSequence: sample.turn,
+        latencyStage: sample.stage,
+        latencyMicros: sample.micros,
+        environment: sample.environment,
+      );
+
   final RuntimeEventKind kind;
   final int streamSequence;
   final int observedAtMicros;
@@ -132,6 +156,8 @@ final class RuntimeEvent {
   final String? component;
   final String? detail;
   final DeviceConnectionState? deviceState;
+  final TurnLatencyStage? latencyStage;
+  final int? latencyMicros;
 
   static final RegExp _token = RegExp(r'^[A-Za-z0-9_.:-]{1,64}$');
 
@@ -179,6 +205,14 @@ final class RuntimeEvent {
               'adapter': adapterId,
               'environment': environmentWire(environment!),
               'truth': truthLabel!.name.toUpperCase(),
+            },
+          RuntimeEventKind.latency => <String, Object?>{
+              'turn': turnSequence,
+              'stage': latencyStage!.name,
+              'micros': latencyMicros,
+              'environment':
+                  environment == null ? null : environmentWire(environment!),
+              'truth': 'MEASURED',
             },
           RuntimeEventKind.diagnostic => <String, Object?>{
               'code': diagnosticCode!.name,

@@ -37,6 +37,9 @@ final class CaptionDelivery {
     required this.truthLabel,
     required this.adapterId,
     this.reason,
+    this.pageCount = 1,
+    this.foldedGlyphs = 0,
+    this.replacedGlyphs = 0,
   });
 
   final TranslationSession session;
@@ -46,6 +49,16 @@ final class CaptionDelivery {
   final TruthLabel truthLabel;
   final String adapterId;
   final String? reason;
+
+  /// Pages the destination laid the caption out on; only the first is shown
+  /// until page navigation is wired.
+  final int pageCount;
+
+  /// Characters outside the destination's glyph set. [foldedGlyphs] were
+  /// approximated (e.g. accented Latin to ASCII); [replacedGlyphs] became `?`.
+  /// Both are degradation, not Unicode support.
+  final int foldedGlyphs;
+  final int replacedGlyphs;
 }
 
 /// Subtitle/HUD output port. Implementations report [CaptionDeliveryStatus.blocked]

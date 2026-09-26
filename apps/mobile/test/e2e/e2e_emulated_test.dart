@@ -57,7 +57,9 @@ void main() {
     expect(shown.suspended, isFalse, reason: 'first caption wakes display');
     expect(shown.lower, greaterThan(0));
     expect(shown.upper, 0);
-    expect(shown.lit, shown.lower);
+    expect(shown.outside, 0);
+    expect(shown.bbox![1],
+        greaterThanOrEqualTo(HaloCaptionComposer.lineTops.first - 1));
     expect(h.tts.spoken.map((TranslationSegment s) => s.sequence), <int>[1]);
     expect(
       h.deliveries.where((CaptionDelivery d) =>
@@ -84,6 +86,60 @@ void main() {
     expect(wire, isNot(contains('HELLO WORLD')));
     expect(wire, isNot(contains('HALO_REAL')));
     _ndjson('positive', h.eventLines);
+  });
+
+  test('latency: turns through the emulated HUD are measured, not assumed',
+      skip: _skip, () async {
+    const int turns = 30;
+    for (int turn = 1; turn <= turns; turn++) {
+      h.translator.outputs[turn] = 'CAPTION NUMBER $turn';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+    }
+    await h.settle();
+    final List<Map<String, Object?>> latency = h.eventLines
+        .map((String l) => jsonDecode(l) as Map<String, Object?>)
+        .where((Map<String, Object?> e) => e['kind'] == 'latency')
+        .toList();
+    List<int> micros(String stage) => <int>[
+          for (final Map<String, Object?> e in latency)
+            if (e['stage'] == stage) e['micros']! as int,
+        ];
+    final List<int> caption = micros('finalToCaption');
+    expect(caption, hasLength(turns));
+    expect(caption, everyElement(greaterThan(0)));
+    expect(
+      latency
+          .where((Map<String, Object?> e) => e['stage'] == 'finalToCaption')
+          .map((Map<String, Object?> e) => e['environment']),
+      everyElement('EMULATED'),
+      reason: 'the caption interval is closed by the emulated HUD',
+    );
+    expect(latency.map((Map<String, Object?> e) => e['truth']),
+        everyElement('MEASURED'));
+    expect(h.eventLines.join('\n'), isNot(contains('CAPTION NUMBER')));
+
+    final Map<String, Object?> summary = <String, Object?>{
+      'environment': 'EMULATED HUD, SIMULATED providers, not hardware',
+      'clock': 'runtime monotonic (Stopwatch)',
+      for (final String stage in <String>[
+        'finalToTranslation',
+        'translationToCaption',
+        'finalToCaption',
+        'finalToSpeechQueued',
+      ])
+        stage: _stats(micros(stage)),
+      'speechEndToFinal': 'UNKNOWN',
+      'speechQueuedToAudible': 'UNKNOWN',
+    };
+    _ndjson('latency', h.eventLines);
+    final String? dir = _artifacts;
+    if (dir != null) {
+      File('$dir/latency_emulated_summary.json').writeAsStringSync(
+          const JsonEncoder.withIndent('  ').convert(summary));
+    }
+    // ignore: avoid_print
+    print('LATENCY_EMULATED ${jsonEncode(summary)}');
   });
 
   test('stale turn: an older translation never reaches the framebuffer',
@@ -167,19 +223,65 @@ void main() {
     await h.waitForDeliveries(3);
     expect(h.deliveries[2].status, CaptionDeliveryStatus.delivered);
     expect(h.transport.sentDisplayCommands.last,
-        startsWith('frame.display.power_save(false)'));
+        startsWith('local d=frame.display d.power_save(false)'));
     final EmulatorFrame restored =
         await h.transport.frame(png: _png('restart'));
     expect(restored.suspended, isFalse);
     expect(restored.lower, greaterThan(0));
   });
 
+  test('reconnect soak: crash/reconnect cycles leave no orphan or temp file',
+      skip: _skip, () async {
+    final int cycles =
+        int.tryParse(Platform.environment['HORIZON_SOAK_CYCLES'] ?? '') ?? 25;
+    final Set<String> tempBefore = _tempEntries();
+    int turn = 0;
+    int failedWhileDown = 0;
+    for (int cycle = 1; cycle <= cycles; cycle++) {
+      await h.transport.crash();
+      h.translator.outputs[++turn] = 'DOWN $cycle';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+      if (h.deliveries.last.status == CaptionDeliveryStatus.failed) {
+        failedWhileDown++;
+      }
+      await h.device.reconnect();
+      h.translator.outputs[++turn] = 'BACK $cycle';
+      h.addFinal(turn);
+      await h.waitForDeliveries(turn);
+      expect(h.deliveries.last.status, CaptionDeliveryStatus.delivered,
+          reason: 'cycle $cycle');
+      final EmulatorFrame frame = await h.transport.frame();
+      expect(frame.lit, greaterThan(0), reason: 'cycle $cycle caption visible');
+      expect(frame.outside, 0);
+    }
+    expect(h.runtime.state, HorizonTranslationRuntimeState.listening);
+    expect(failedWhileDown, cycles, reason: 'a dead HUD fails, never hangs');
+    final List<int> pids = h.transport.bridgePids;
+    expect(pids, hasLength(cycles + 1));
+    final List<int> alive = pids.where(_processAlive).toList();
+    expect(alive, <int>[pids.last], reason: 'only the current bridge runs');
+    await h.transport.disconnect();
+    expect(pids.where(_processAlive), isEmpty, reason: 'no orphan bridge');
+    final Set<String> leaked = _tempEntries().difference(tempBefore);
+    expect(leaked, isEmpty, reason: 'no temp files left in the private dir');
+    // ignore: avoid_print
+    print('SOAK_RECONNECT ${jsonEncode(<String, Object?>{
+          'cycles': cycles,
+          'bridgesStarted': pids.length,
+          'failedWhileDown': failedWhileDown,
+          'deliveredAfterReconnect': cycles,
+          'orphans': 0,
+          'tempFilesLeaked': leaked.length,
+        })}');
+  }, timeout: const Timeout(Duration(minutes: 10)));
+
   test('adversarial payloads stay text and never execute on the device',
       skip: _skip, () async {
     h.translator
       ..outputs[1] = '")PWNED=1 frame.display.clear() os.exit()--'
       ..outputs[2] = 'x\n)PWNED=2 --'
-      ..outputs[3] = 'A' * (HaloBoundedDisplay.maxTextBytes + 1);
+      ..outputs[3] = 'A' * (HaloCaptionComposer.maxInputChars + 1);
 
     h.addFinal(1);
     await h.waitForDeliveries(1);
@@ -209,6 +311,34 @@ void main() {
   });
 }
 
+bool _processAlive(int pid) {
+  final File stat = File('/proc/$pid/stat');
+  if (!stat.existsSync()) return false;
+  // A zombie still has a /proc entry but is not running.
+  final String state = stat.readAsStringSync().split(') ').last.split(' ').first;
+  return state != 'Z' && state != 'X';
+}
+
+Set<String> _tempEntries() => Directory.systemTemp
+    .listSync()
+    .map((FileSystemEntity e) => e.path)
+    .where((String p) => !p.contains('flutter_tools') && !p.contains('dart_test'))
+    .toSet();
+
+/// Nearest-rank p50/p95, withheld below 5 and 20 samples (as the Console).
+Map<String, Object?> _stats(List<int> values) {
+  final List<int> sorted = <int>[...values]..sort();
+  int? rank(double p, int minimum) => sorted.length < minimum
+      ? null
+      : sorted[((p / 100) * sorted.length).ceil().clamp(1, sorted.length) - 1];
+  return <String, Object?>{
+    'samples': sorted.length,
+    'latestMicros': values.isEmpty ? null : values.last,
+    'p50Micros': rank(50, 5),
+    'p95Micros': rank(95, 20),
+  };
+}
+
 void _ndjson(String name, List<String> lines) {
   final String? dir = _artifacts;
   if (dir == null) return;
@@ -229,8 +359,8 @@ Future<EmulatorHaloTransport> _referenceRender(String text) async {
       EmulatorHaloTransport(python: _python!, bridgeScript: _bridge);
   await transport.connect(const HaloTransportDiscovery(
       reconnectId: 'reference', displayName: 'reference'));
-  await transport
-      .executeDisplayCommand(HaloBoundedDisplay.text(text, powerOn: true));
+  await transport.executeDisplayCommand(
+      HaloCaptionComposer.compose(text).command(0, powerOn: true));
   return transport;
 }
 

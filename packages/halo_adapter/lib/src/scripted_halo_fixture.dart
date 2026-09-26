@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:persalone_contracts/persalone_contracts.dart';
 
 import 'halo_bounded_display.dart';
+import 'halo_caption_composer.dart';
 
 /// Deterministic test-only implementation of [DeviceAdapterPort].
 ///
@@ -15,6 +16,9 @@ final class ScriptedHaloFixture implements DeviceAdapterPort {
 
   /// Last bounded command the fixture would have sent. SIMULATED evidence only.
   HaloDisplayCommand? lastDisplayCommand;
+
+  /// Last caption composition (all pages) the fixture laid out.
+  HaloCaptionComposition? lastComposition;
 
   static const String fixtureRevision = 'scripted-halo-fixture/1';
   static final Stopwatch _clock = Stopwatch()..start();
@@ -223,13 +227,15 @@ final class ScriptedHaloFixture implements DeviceAdapterPort {
         );
       }
       // Same bounded builder as the physical path; the result stays SIMULATED.
-      lastDisplayCommand = HaloBoundedDisplay.text(
-        text,
-        powerOn: lastDisplayCommand == null,
-      );
+      final HaloCaptionComposition composition =
+          HaloCaptionComposer.compose(text);
+      lastComposition = composition;
+      lastDisplayCommand = composition.isEmpty
+          ? HaloBoundedDisplay.clear
+          : composition.command(0, powerOn: lastDisplayCommand == null);
       return HaloLuaResult(
         query: query,
-        value: '1',
+        value: HaloCaptionComposition.resultValue(composition),
         sourceRevision: fixtureRevision,
         truthLabel: TruthLabel.simulated,
       );

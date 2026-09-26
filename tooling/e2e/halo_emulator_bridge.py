@@ -7,8 +7,9 @@ framebuffer. Evidence produced through it is EMULATED, never HALO_REAL.
 Requests (one JSON object per line on stdin):
   {"op": "exec", "lua": "..."}          -> {"ok": true, "prints": [...]}
   {"op": "frame", "png": "<path>|null"} -> {"ok": true, "lit": n, "upper": n,
-                                            "lower": n, "sha256": "...",
-                                            "suspended": bool}
+                                            "lower": n, "outside": n,
+                                            "bbox": [x0,y0,x1,y1]|null,
+                                            "sha256": "...", "suspended": bool}
   {"op": "global_is_nil", "name": "X"}  -> {"ok": true, "value": bool}
 """
 
@@ -32,7 +33,11 @@ def _reply(payload):
 
 def main():
     prints = []
-    emu = HaloEmulator(print_handler=prints.append)
+    # The host owns the sandbox directory (argv[1]) and removes it after this
+    # process exits, even when it is SIGKILLed; an emulator-owned temp dir
+    # would be left behind on every crash.
+    sandbox = sys.argv[1] if len(sys.argv) > 1 else None
+    emu = HaloEmulator(print_handler=prints.append, sandbox_dir=sandbox)
     emu.connect()
     # Halo boots with its display in power-save mode; mirror that so the host
     # must wake it explicitly.
@@ -55,9 +60,16 @@ def main():
                        if pixels[x, y] != (0, 0, 0)]
                 if request.get("png"):
                     image.save(request["png"])
+                outside = sum(1 for x, y in lit
+                              if (x - 127.5) ** 2 + (y - 127.5) ** 2 > 128 ** 2)
+                bbox = ([min(x for x, _ in lit), min(y for _, y in lit),
+                         max(x for x, _ in lit), max(y for _, y in lit)]
+                        if lit else None)
                 _reply({
                     "ok": True,
                     "lit": len(lit),
+                    "outside": outside,
+                    "bbox": bbox,
                     "upper": sum(1 for _, y in lit if y in UPPER_BAND),
                     "lower": sum(1 for _, y in lit if y in LOWER_BAND),
                     "sha256": hashlib.sha256(image.tobytes()).hexdigest(),

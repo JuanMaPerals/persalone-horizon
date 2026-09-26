@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:persalone_contracts/persalone_contracts.dart';
 
 import 'halo_bounded_display.dart';
+import 'halo_caption_composer.dart';
 import 'halo_transport.dart';
 
 /// Product-owned Halo adapter. A [ready] state is emitted only after the
@@ -115,7 +116,8 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
     _transition(DeviceConnectionState.connecting);
     _emitDiagnostic(AdapterDiagnosticCode.connectStarted);
     try {
-      final HaloTransportConnection connection = await _transport.connect(selected);
+      final HaloTransportConnection connection =
+          await _transport.connect(selected);
       _assertReadyConnection(connection);
       _transition(DeviceConnectionState.ready);
       _emitDiagnostic(AdapterDiagnosticCode.servicesReady);
@@ -183,7 +185,8 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
           capability: Capability.bleConnection,
           truthLabel: label,
           sourceRevision: _sourceRevision,
-          reason: 'Implementation exists; no physical Halo validation recorded.',
+          reason:
+              'Implementation exists; no physical Halo validation recorded.',
         ),
         Capability.deviceIdentity: CapabilityState(
           capability: Capability.deviceIdentity,
@@ -207,7 +210,8 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
           capability: Capability.userDataTransport,
           truthLabel: label,
           sourceRevision: _sourceRevision,
-          reason: 'Validated framing is prepared; the receiving Halo application still requires physical validation.',
+          reason:
+              'Validated framing is prepared; the receiving Halo application still requires physical validation.',
         ),
         Capability.display: CapabilityState(
           capability: Capability.display,
@@ -347,8 +351,11 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
         'Display text requires caption text.',
       );
     }
-    final HaloDisplayCommand command =
-        HaloBoundedDisplay.text(text, powerOn: !_displayPoweredOn);
+    final HaloCaptionComposition composition =
+        HaloCaptionComposer.compose(text);
+    final HaloDisplayCommand command = composition.isEmpty
+        ? HaloBoundedDisplay.clear
+        : composition.command(0, powerOn: !_displayPoweredOn);
     final int generation = _linkGeneration;
     try {
       await _transport.executeDisplayCommand(command);
@@ -368,10 +375,10 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
         'Halo link changed before the display command completed.',
       );
     }
-    _displayPoweredOn = true;
+    if (!composition.isEmpty) _displayPoweredOn = true;
     return HaloLuaResult(
       query: HaloLuaQuery.displayText,
-      value: '1',
+      value: HaloCaptionComposition.resultValue(composition),
       sourceRevision: _sourceRevision,
       truthLabel: TruthLabel.prepared,
     );
@@ -538,9 +545,8 @@ final class HaloDeviceAdapter implements DeviceAdapterPort {
 
   static String _redact(String value) {
     final String compact = value.replaceAll(RegExp(r'\s+'), '');
-    final String suffix = compact.length <= 4
-        ? compact
-        : compact.substring(compact.length - 4);
+    final String suffix =
+        compact.length <= 4 ? compact : compact.substring(compact.length - 4);
     return 'halo-••••$suffix';
   }
 
