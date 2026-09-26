@@ -145,6 +145,9 @@ final class AppRunHost {
     return run._serial(() async {
       _ensureCurrent(run);
       final ButtonOutcome o = await run.session.press(gesture);
+      // Panic invalidates the generation immediately. Never publish a device
+      // result that completed after that invalidation.
+      _ensureCurrent(run);
       for (final String report in o.deviceReports) {
         events.diagnostic(LiveTranslationDiagnosticCode.inputButton, 'halo-button',
             runId: run.runId,
@@ -170,7 +173,21 @@ final class AppRunHost {
     final AppRun run = _active(runId);
     return run._serial(() async {
       _ensureCurrent(run);
-      return run.session.frame();
+      final FrameCapture capture = await run.session.frame();
+      _ensureCurrent(run);
+      return capture;
+    });
+  }
+
+  /// Test-only product operation used by the canonical test runner. It stays
+  /// behind the same lease, queue and generation guards as Studio actions.
+  Future<FrameCapture> clearAndCapture(String runId) {
+    final AppRun run = _active(runId);
+    return run._serial(() async {
+      _ensureCurrent(run);
+      final FrameCapture capture = await run.session.clearAndCapture();
+      _ensureCurrent(run);
+      return capture;
     });
   }
 
