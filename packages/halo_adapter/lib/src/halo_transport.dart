@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:persalone_contracts/persalone_contracts.dart';
+
 import 'halo_bounded_display.dart';
 
 /// Transport-level discovery result. It intentionally does not expose a raw
@@ -48,6 +50,11 @@ final class HaloTransportBattery {
 /// Implementations must not expose OTA, arbitrary Lua, raw audio streaming, or
 /// unredacted identifiers through this port.
 abstract interface class HaloTransport {
+  /// Execution path behind this transport. Only the official BLE transport may
+  /// report [ExecutionEnvironment.haloReal]; an emulator reports
+  /// [ExecutionEnvironment.emulated] and test doubles [ExecutionEnvironment.simulated].
+  ExecutionEnvironment get environment;
+
   Stream<HaloTransportDiscovery> get discoveries;
   Stream<bool> get linkStates;
 

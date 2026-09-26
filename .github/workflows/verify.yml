@@ -39,6 +39,44 @@ jobs:
         run: bash tooling/preflight.sh --all
 
 
+  e2e-emulated:
+    name: e2e-emulated
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.29.2'
+          cache: true
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install official halo-emulator (pinned SDK revision)
+        run: |
+          python -m venv "$RUNNER_TEMP/halo-emulator"
+          "$RUNNER_TEMP/halo-emulator/bin/pip" install -r tooling/e2e/requirements-halo-emulator.txt
+      - name: Resolve packages
+        run: flutter pub get
+      - name: E2E_EMULATED (providers SIMULATED, HUD EMULATED, never HALO_REAL)
+        working-directory: apps/mobile
+        env:
+          HORIZON_E2E_PYTHON: ${{ runner.temp }}/halo-emulator/bin/python
+          HORIZON_E2E_REQUIRED: '1'
+          HORIZON_E2E_ARTIFACTS: ${{ runner.temp }}/e2e-emulated
+        run: flutter test test/e2e
+      - name: Upload emulated framebuffer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-emulated-framebuffers
+          path: ${{ runner.temp }}/e2e-emulated
+          if-no-files-found: warn
+
   console:
     name: console
     runs-on: ubuntu-latest

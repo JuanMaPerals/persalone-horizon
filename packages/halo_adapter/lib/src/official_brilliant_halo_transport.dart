@@ -3,6 +3,8 @@ import 'dart:typed_data';
 
 import 'package:brilliant_ble/brilliant_ble.dart';
 import 'package:brilliant_msg/brilliant_msg.dart' show RxAudio;
+import 'package:persalone_contracts/persalone_contracts.dart'
+    show ExecutionEnvironment;
 
 import 'halo_audio_transport.dart';
 import 'halo_bounded_display.dart';
@@ -13,6 +15,9 @@ import 'halo_transport.dart';
 /// because no reviewed Halo Lua application has been deployed.
 final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTransport {
   OfficialBrilliantHaloTransport();
+
+  @override
+  ExecutionEnvironment get environment => ExecutionEnvironment.haloReal;
 
   static const String brilliantSdkRevision =
       '462dff4795cffb85248ab1d2f92d4f319adb03d3';
