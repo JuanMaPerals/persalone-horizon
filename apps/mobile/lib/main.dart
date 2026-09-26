@@ -27,7 +27,10 @@ class PersalOneApp extends StatelessWidget {
 }
 
 class AndroidHostAudioScreen extends StatefulWidget {
-  const AndroidHostAudioScreen({super.key});
+  const AndroidHostAudioScreen({super.key, this.control});
+
+  /// Test seam: when null, the screen controls its own G5 runtime.
+  final RuntimeControlPort? control;
 
   @override
   State<AndroidHostAudioScreen> createState() => _AndroidHostAudioScreenState();
@@ -44,6 +47,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   late final MlKitOnDeviceTranslatorProvider _translator;
   late final AndroidTextToSpeechProvider _tts;
   late final HorizonTranslationRuntime _runtime;
+  late final RuntimeControlPort _control;
+  HorizonRuntimeController? _ownedController;
+  int _commandCounter = 0;
   final BytesBuilder _sample = BytesBuilder(copy: false);
 
   StreamSubscription<AudioFrame>? _frameSubscription;
@@ -65,7 +71,6 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   int _outputWrites = 0;
   int _underruns = 0;
   int _staleCallbacks = 0;
-  TranslationDirection _direction = TranslationDirection.englishToSpanish;
   String _status = 'Preparado para validar audio Android con evidencia real.';
   String _liveStatus = 'G5 PREPARED — requiere ensayo físico Android.';
   String _modelStatus = 'No preparado';
@@ -89,6 +94,10 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       translator: _translator,
       synthesizer: _tts,
     );
+    if (widget.control == null) {
+      _ownedController = HorizonRuntimeController(runtime: _runtime);
+    }
+    _control = widget.control ?? _ownedController!;
     _frameSubscription = _microphone.frames.listen(_collectInputFrame);
     _inputDiagnosticSubscription = _microphone.diagnostics.listen(
       _observeInputDiagnostic,
@@ -116,6 +125,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _translationSubscription?.cancel();
     _runtimeDiagnosticSubscription?.cancel();
     _translationSnapshotSubscription?.cancel();
+    _ownedController?.dispose();
     _runtime.dispose();
     _microphone.dispose();
     _speaker.dispose();
@@ -225,6 +235,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     }
   }
 
+  String _nextCommandId() =>
+      'ui-${DateTime.now().microsecondsSinceEpoch}-${++_commandCounter}';
+
   Future<void> _startLiveTranslation() async {
     if (!_localConsent || !_modelDownloadConsent) {
       setState(() {
@@ -233,67 +246,43 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       });
       return;
     }
-    try {
-      final now = DateTime.now().microsecondsSinceEpoch;
-      final session = TranslationSession(
-        sessionId: 'live-$now',
-        streamEpoch: now,
-        direction: _direction,
-        privacyGeneration: now,
-      );
-      final locales = _direction == TranslationDirection.englishToSpanish
-          ? ('en-US', 'es-ES')
-          : ('es-ES', 'en-US');
-      setState(() {
-        _partialTranscript = '';
-        _finalTranscript = '';
-        _translation = '';
-        _staleCallbacks = 0;
-        _modelStatus = 'Preparando modelo on-device';
-        _liveStatus =
-            'Preparando reconocimiento, modelo local y síntesis Android.';
-      });
-      await _runtime.start(
-        config: LiveTranslationConfig(
-          session: session,
-          sourceLocale: locales.$1,
-          targetLocale: locales.$2,
-          consent: TranslationConsent(
-            acceptedAtMicros: now,
-            localProcessingAllowed: true,
-            modelDownloadAllowed: true,
-            remoteProcessingAllowed: false,
-          ),
-        ),
-        audioSession: AudioSessionDescriptor(
-          sessionId: session.sessionId,
-          streamEpoch: session.streamEpoch,
-          streamId: 'android-microphone-live',
-        ),
-      );
-      if (!mounted) return;
-      setState(() {
-        _liveRunning = true;
-        _liveStatus =
-            'Escuchando con micrófono Android real. No se persiste audio ni texto.';
-      });
-    } on RuntimeError catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _liveRunning = false;
-        _liveStatus = 'G5 bloqueado: ${error.code.name}.';
-      });
-    } catch (error) {
-      if (!mounted) return;
-      setState(() {
-        _liveRunning = false;
-        _liveStatus = 'G5 no se pudo iniciar: ${error.runtimeType}.';
-      });
-    }
+    setState(() {
+      _partialTranscript = '';
+      _finalTranscript = '';
+      _translation = '';
+      _staleCallbacks = 0;
+      _modelStatus = 'Preparando modelo on-device';
+      _liveStatus =
+          'Preparando reconocimiento, modelo local y síntesis Android.';
+    });
+    final CommandResult result = await _control.execute(StartCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+      consent: TranslationConsent(
+        acceptedAtMicros: DateTime.now().microsecondsSinceEpoch,
+        localProcessingAllowed: true,
+        modelDownloadAllowed: true,
+        remoteProcessingAllowed: false,
+      ),
+    ));
+    if (!mounted) return;
+    setState(() {
+      _liveRunning = result.status == CommandStatus.accepted;
+      _liveStatus = _liveRunning
+          ? 'Escuchando con micrófono Android real. No se persiste audio ni texto.'
+          : 'G5 bloqueado: ${_describe(result)}.';
+    });
   }
 
   Future<void> _stopLiveTranslation() async {
-    await _runtime.stop();
+    final String? sessionId = _control.activeSessionId;
+    if (sessionId != null) {
+      await _control.execute(StopCommand(
+        commandId: _nextCommandId(),
+        origin: ControlOrigin.local,
+        sessionId: sessionId,
+      ));
+    }
     if (!mounted) return;
     setState(() {
       _liveRunning = false;
@@ -304,6 +293,68 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
           'Sesión detenida. Se descartó el estado textual mostrado en memoria.';
     });
   }
+
+  Future<void> _setLanguage(TranslationDirection direction) async {
+    final CommandResult result = await _control.execute(SetLanguageCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+      direction: direction,
+    ));
+    if (!mounted) return;
+    setState(() {
+      if (result.status == CommandStatus.rejected) {
+        _liveStatus =
+            'Idioma no cambiado: ${_describe(result)}. Se aplicará solo a la próxima sesión.';
+      }
+    });
+  }
+
+  /// Emergency stop from any state. G5 handles runtime, STT, TTS and HUD;
+  /// the raw G3/G4 host capture and playback live outside G5 and are stopped
+  /// here best-effort. Ephemeral text and audio buffers are always cleared.
+  Future<void> _panic() async {
+    final CommandResult result = await _control.execute(PanicCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+    ));
+    final List<String> failed = <String>[...result.failedCleanup];
+    Future<void> bestEffort(String name, Future<void> Function() op) async {
+      try {
+        await op();
+      } on Object {
+        failed.add(name);
+      }
+    }
+
+    if (_capturing) await bestEffort('hostCapture', _microphone.stop);
+    if (_playing) await bestEffort('hostPlayback', _speaker.stop);
+    _sample.clear();
+    if (!mounted) return;
+    setState(() {
+      _capturing = false;
+      _playing = false;
+      _liveRunning = false;
+      _partialTranscript = '';
+      _finalTranscript = '';
+      _translation = '';
+      _liveStatus = failed.isEmpty
+          ? 'PANIC ejecutado: micrófono, STT, TTS y HUD detenidos; buffers efímeros vaciados.'
+          : 'PANIC ejecutado con fallos de limpieza en: ${failed.join(', ')}. El resto de acciones de seguridad sí se ejecutaron.';
+    });
+  }
+
+  String _describe(CommandResult result) {
+    final String rejection = result.rejection?.name ?? 'rechazado';
+    final RuntimeErrorCode? error = result.runtimeError;
+    return error == null ? rejection : '$rejection (${error.name})';
+  }
+
+  static String _languageLabel(TranslationDirection? direction) =>
+      switch (direction) {
+        TranslationDirection.englishToSpanish => 'Inglés → Español',
+        TranslationDirection.spanishToEnglish => 'Español → Inglés',
+        null => 'ninguna sesión activa',
+      };
 
   void _collectInputFrame(AudioFrame frame) {
     if (!_capturing) return;
@@ -376,7 +427,23 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('PersalOne HORIZON — Android')),
+      appBar: AppBar(
+        title: const Text('PersalOne HORIZON — Android'),
+        actions: <Widget>[
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilledButton(
+              key: const Key('panic-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: _panic,
+              child: const Text('PANIC — detener todo'),
+            ),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: <Widget>[
@@ -443,14 +510,20 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
           ),
           _EvidenceCard(title: 'Estado de modelo', value: _modelStatus),
           _EvidenceCard(title: 'Estado de sesión', value: _liveStatus),
+          _EvidenceCard(
+            title: 'Idioma',
+            value: 'Efectivo: ${_languageLabel(_control.language.effective)} · '
+                'Pendiente (próxima sesión): ${_languageLabel(_control.language.pending)}',
+          ),
           DropdownButtonFormField<TranslationDirection>(
-            value: _direction,
-            decoration: const InputDecoration(labelText: 'Dirección'),
+            value: _control.language.pending,
+            decoration: const InputDecoration(
+                labelText: 'Dirección para la próxima sesión'),
             onChanged: _liveRunning
                 ? null
                 : (direction) {
                     if (direction != null) {
-                      setState(() => _direction = direction);
+                      unawaited(_setLanguage(direction));
                     }
                   },
             items: const <DropdownMenuItem<TranslationDirection>>[
