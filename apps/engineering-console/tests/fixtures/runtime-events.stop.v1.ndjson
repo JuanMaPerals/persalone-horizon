@@ -1,0 +1,12 @@
+{"schema":"horizon.runtime-event.v1","seq":1,"atMicros":1010,"kind":"sessionState","session":{"id":"session-golden","epoch":3},"state":"preparing","failureCode":null}
+{"schema":"horizon.runtime-event.v1","seq":2,"atMicros":1020,"kind":"sessionState","session":{"id":"session-golden","epoch":3},"state":"listening","failureCode":null}
+{"schema":"horizon.runtime-event.v1","seq":3,"atMicros":1030,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"transcriptFinal","component":"stt","turn":1,"detail":null}
+{"schema":"horizon.runtime-event.v1","seq":4,"atMicros":1040,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"translationCompleted","component":"translation","turn":1,"detail":null}
+{"schema":"horizon.runtime-event.v1","seq":5,"atMicros":900010,"kind":"caption","session":{"id":"session-golden","epoch":3},"turn":1,"status":"delivered","environment":"SIMULATED","truth":"SIMULATED","adapter":"golden-captions","reason":null}
+{"schema":"horizon.runtime-event.v1","seq":6,"atMicros":1060,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"captionDelivered","component":"caption","turn":1,"detail":null}
+{"schema":"horizon.runtime-event.v1","seq":7,"atMicros":1070,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"transcriptFinal","component":"stt","turn":2,"detail":null}
+{"schema":"horizon.runtime-event.v1","seq":8,"atMicros":1080,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"translationCompleted","component":"translation","turn":2,"detail":null}
+{"schema":"horizon.runtime-event.v1","seq":9,"atMicros":900020,"kind":"caption","session":{"id":"session-golden","epoch":3},"turn":2,"status":"blocked","environment":"SIMULATED","truth":"BLOCKED","adapter":"golden-captions","reason":"capabilityUnavailable"}
+{"schema":"horizon.runtime-event.v1","seq":10,"atMicros":1100,"kind":"diagnostic","session":{"id":"session-golden","epoch":3},"code":"captionBlocked","component":"caption","turn":2,"detail":"capabilityUnavailable"}
+{"schema":"horizon.runtime-event.v1","seq":11,"atMicros":1110,"kind":"sessionState","session":{"id":"session-golden","epoch":3},"state":"stopping","failureCode":null}
+{"schema":"horizon.runtime-event.v1","seq":12,"atMicros":1120,"kind":"sessionState","session":{"id":"session-golden","epoch":3},"state":"stopped","failureCode":null}
