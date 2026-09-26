@@ -2,7 +2,9 @@ name: Deploy HORIZON public shell to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - preview/studio-v2-r1
   workflow_dispatch:
 
 permissions:
