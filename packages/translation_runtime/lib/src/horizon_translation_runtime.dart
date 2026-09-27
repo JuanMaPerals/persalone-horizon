@@ -30,6 +30,42 @@ final class HorizonTranslationRuntimeSnapshot {
   final RuntimeErrorCode? failureCode;
 }
 
+/// Upper bounds for every provider and adapter call the runtime awaits, so a
+/// hung component can never stall a session, Stop or Panic. When a deadline
+/// passes the runtime stops waiting (the call itself cannot be aborted; a late
+/// result is discarded as stale) and reports `deadlineExceeded`.
+///
+/// The microphone permission request is not bounded: it waits for a person.
+/// Stop and Panic supersede it (the session is invalidated first).
+final class RuntimeDeadlines {
+  const RuntimeDeadlines({
+    this.prepare = const Duration(seconds: 30),
+    this.inputStart = const Duration(seconds: 10),
+    this.translate = const Duration(seconds: 15),
+    this.caption = const Duration(seconds: 5),
+    this.speak = const Duration(seconds: 10),
+    this.cleanup = const Duration(seconds: 3),
+  });
+
+  /// Provider preparation (model and engine load).
+  final Duration prepare;
+
+  /// Microphone start.
+  final Duration inputStart;
+
+  /// One translation.
+  final Duration translate;
+
+  /// One caption show or clear on the destination display.
+  final Duration caption;
+
+  /// Handing one utterance to the synthesizer (not its playback).
+  final Duration speak;
+
+  /// Each teardown step of Stop, Panic, failure and barge-in, independently.
+  final Duration cleanup;
+}
+
 /// Provider-neutral live translation orchestration.
 ///
 /// The runtime owns one input adapter and feeds its canonical PCM frames only to
@@ -46,6 +82,7 @@ final class HorizonTranslationRuntime {
     CaptionOutputAdapter? captions,
     DateTime Function()? clock,
     int Function()? monotonicMicros,
+    this.deadlines = const RuntimeDeadlines(),
   })  : _input = input,
         _stt = stt,
         _translator = translator,
@@ -63,6 +100,7 @@ final class HorizonTranslationRuntime {
   final SpeechSynthesisProvider _synthesizer;
   final CaptionOutputAdapter? _captions;
   final DateTime Function() _clock;
+  final RuntimeDeadlines deadlines;
 
   /// Latency is measured only on this clock; wall-clock time can jump.
   final int Function() _monotonicMicros;
@@ -168,11 +206,14 @@ final class HorizonTranslationRuntime {
     _setState(HorizonTranslationRuntimeState.preparing);
     _bindProviderDiagnostics();
     try {
-      await _stt.prepare(config, format);
+      await _bounded('stt', 'prepare', deadlines.prepare,
+          () => _stt.prepare(config, format));
       _assertCurrent(config.session);
-      await _translator.prepare(config);
+      await _bounded('translation', 'prepare', deadlines.prepare,
+          () => _translator.prepare(config));
       _assertCurrent(config.session);
-      await _synthesizer.prepare(config);
+      await _bounded('tts', 'prepare', deadlines.prepare,
+          () => _synthesizer.prepare(config));
       _assertCurrent(config.session);
 
       final permissionGranted = await _input.requestPermission();
@@ -190,7 +231,8 @@ final class HorizonTranslationRuntime {
           unawaited(_fail(error, stackTrace));
         },
       );
-      await _input.start(audioSession, format);
+      await _bounded('input', 'start', deadlines.inputStart,
+          () => _input.start(audioSession, format));
       _assertCurrent(config.session);
       _frameSubscription = _input.frames.listen(
         (AudioFrame frame) {
@@ -258,15 +300,16 @@ final class HorizonTranslationRuntime {
     _setState(HorizonTranslationRuntimeState.stopped);
   }
 
+  /// Stops (bounded), closes the runtime, then releases the providers in
+  /// parallel and independently: one that never returns cannot keep the
+  /// others alive. The runtime is disposed before they finish. No deadline
+  /// timer is armed here, so teardown leaves nothing pending behind it.
   Future<void> dispose() async {
     if (_disposed) {
       return;
     }
     await stop();
     _disposed = true;
-    await _stt.dispose();
-    await _translator.dispose();
-    await _synthesizer.dispose();
     await _snapshots.close();
     await _diagnostics.close();
     await _transcripts.close();
@@ -274,6 +317,14 @@ final class HorizonTranslationRuntime {
     await _captionDeliveries.close();
     await _latencies.close();
     _state = HorizonTranslationRuntimeState.disposed;
+    await Future.wait(<Future<void>>[
+      for (final Future<void> Function() release in <Future<void> Function()>[
+        _stt.dispose,
+        _translator.dispose,
+        _synthesizer.dispose,
+      ])
+        Future<void>.sync(release).catchError((Object _) {}),
+    ]);
   }
 
   Future<void> _onFrame(AudioFrame frame) async {
@@ -357,13 +408,14 @@ final class HorizonTranslationRuntime {
     try {
       // A new final turn interrupts prior synthesis before its own translation
       // can be spoken. This is the G5 barge-in boundary.
-      await _synthesizer.stop();
+      await _bounded('tts', 'stop', deadlines.cleanup, _synthesizer.stop);
       _markSpeechDone();
       if (!_isCurrent(session)) {
         _discardStale('tts', transcript.sequence);
         return;
       }
-      final translation = await _translator.translate(transcript);
+      final translation = await _bounded('translation', 'translate',
+          deadlines.translate, () => _translator.translate(transcript));
       // Translations may complete out of order; a turn older than one already
       // delivered must never replace its caption or be spoken after it.
       if (!_isCurrent(session) ||
@@ -402,7 +454,8 @@ final class HorizonTranslationRuntime {
       }
       _lastSpokenText = translation.translatedText;
       _rememberSpoken(translation.sequence, transcript.speechEndedAtMicros);
-      await _synthesizer.speak(translation);
+      await _bounded('tts', 'speak', deadlines.speak,
+          () => _synthesizer.speak(translation));
       if (!_isCurrent(session)) {
         _discardStale('tts', translation.sequence);
         return;
@@ -433,17 +486,23 @@ final class HorizonTranslationRuntime {
     final session = translation.session;
     CaptionDelivery delivery;
     try {
-      delivery = await captions.show(CaptionUpdate(
-        session: session,
-        sequence: translation.sequence,
-        text: translation.translatedText,
-        observedAtMicros: _nowMicros,
-        truthLabel: translation.truthLabel,
-      ));
+      delivery = await _bounded(
+          'caption',
+          'show',
+          deadlines.caption,
+          () => captions.show(CaptionUpdate(
+                session: session,
+                sequence: translation.sequence,
+                text: translation.translatedText,
+                observedAtMicros: _nowMicros,
+                truthLabel: translation.truthLabel,
+              )));
       // An adapter cannot report a different execution path than it declares.
       if (delivery.environment != captions.environment) {
         delivery = _failedCaption(captions, translation, 'environmentMismatch');
       }
+    } on _DeadlineExceeded {
+      delivery = _failedCaption(captions, translation, 'deadlineExceeded');
     } on Object {
       delivery = _failedCaption(captions, translation, 'adapterError');
     }
@@ -452,7 +511,8 @@ final class HorizonTranslationRuntime {
       // a caption from a closed conversation on the display.
       _discardStale('caption', translation.sequence);
       try {
-        await captions.clear(session);
+        await _bounded('caption', 'clear', deadlines.caption,
+            () => captions.clear(session));
       } on Object {
         // Teardown already ran; a failed late clear is reported as stale only.
       }
@@ -615,32 +675,18 @@ final class HorizonTranslationRuntime {
         reason: reason,
       );
 
+  /// Stop's teardown: the same bounded, best-effort steps as Panic, so one
+  /// failing or hung component cannot leave the microphone, TTS or display
+  /// active. Failures are reported as `cleanupFailed`, never hidden.
   Future<void> _stopActiveResources(TranslationSession? session) async {
-    await _frameSubscription?.cancel();
-    _frameSubscription = null;
-    await _transcriptSubscription?.cancel();
-    _transcriptSubscription = null;
-    for (final subscription in _providerDiagnosticSubscriptions) {
-      await subscription.cancel();
-    }
-    _providerDiagnosticSubscriptions.clear();
-    await _unbindPresentations();
-    await _input.stop();
-    await _stt.stop();
-    await _synthesizer.stop();
+    final List<String> failed = await _stopActiveResourcesAfterFailure(session);
     _markSpeechDone();
-    final captions = _captions;
-    if (session != null && captions != null) {
-      try {
-        await captions.clear(session);
-      } on Object {
-        // A disconnected display must not prevent the session from stopping.
-        _emitDiagnostic(
-          LiveTranslationDiagnosticCode.captionFailed,
-          component: 'caption',
-          detail: 'clearFailed',
-        );
-      }
+    if (failed.isNotEmpty) {
+      _emitDiagnostic(
+        LiveTranslationDiagnosticCode.cleanupFailed,
+        component: 'runtime',
+        detail: failed.join('.'),
+      );
     }
   }
 
@@ -739,7 +785,7 @@ final class HorizonTranslationRuntime {
     Future<void> bestEffort(
         String component, Future<void> Function() operation) async {
       try {
-        await operation();
+        await _bounded(component, 'cleanup', deadlines.cleanup, operation);
       } on Object {
         failed.add(component);
       }
@@ -763,6 +809,23 @@ final class HorizonTranslationRuntime {
       await bestEffort('captions', () => captions.clear(session));
     }
     return failed;
+  }
+
+  /// Awaits [call] for at most [limit]. On expiry it reports
+  /// `deadlineExceeded` and throws [_DeadlineExceeded]; the call keeps
+  /// running and any late result is ignored.
+  Future<T> _bounded<T>(String component, String operation, Duration limit,
+      Future<T> Function() call) async {
+    try {
+      return await call().timeout(limit);
+    } on TimeoutException {
+      _emitDiagnostic(
+        LiveTranslationDiagnosticCode.deadlineExceeded,
+        component: component,
+        detail: operation,
+      );
+      throw _DeadlineExceeded(component, operation);
+    }
   }
 
   void _setState(
@@ -807,4 +870,17 @@ final class HorizonTranslationRuntime {
       );
     }
   }
+}
+
+/// A bounded call did not answer in time. Like any provider error it fails
+/// the session, coded `providerUnavailable` (see `_fail`); the specific cause
+/// is the `deadlineExceeded` diagnostic emitted with it.
+final class _DeadlineExceeded implements Exception {
+  const _DeadlineExceeded(this.component, this.operation);
+
+  final String component;
+  final String operation;
+
+  @override
+  String toString() => 'DeadlineExceeded($component.$operation)';
 }

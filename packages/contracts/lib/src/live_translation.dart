@@ -115,6 +115,11 @@ enum LiveTranslationDiagnosticCode {
 
   /// A hardware button gesture reported by the device (detail: gesture).
   inputButton,
+
+  /// A provider or adapter call did not complete within its deadline
+  /// (component: who; detail: the operation, e.g. `prepare`, `translate`,
+  /// `cleanup`). The runtime stopped waiting; the call was not aborted.
+  deadlineExceeded,
 }
 
 /// Redacted event from a G5 provider or runtime. [detail] must never contain
