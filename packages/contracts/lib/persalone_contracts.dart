@@ -6,6 +6,7 @@ export 'src/capability.dart';
 export 'src/control_envelope.dart';
 export 'src/device_adapter.dart';
 export 'src/live_translation.dart';
+export 'src/product_capability.dart';
 export 'src/runtime_control.dart';
 export 'src/runtime_error.dart';
 export 'src/runtime_event.dart';

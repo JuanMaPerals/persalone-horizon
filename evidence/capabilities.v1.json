@@ -1,0 +1,232 @@
+{
+  "schema": "horizon.capabilities.v1",
+  "rule": "Only a recorded measurement (evidence/registry.v1.json) makes a capability verified; code, imports, endpoints, UI or permissions never do.",
+  "capabilities": [
+    {
+      "id": "liveTranslation",
+      "implementation": "available",
+      "requiredFor": [
+        "ANDROID_REAL"
+      ],
+      "where": "apps/mobile main.dart: Android STT, ML Kit, Android TTS",
+      "status": {
+        "EMULATED": "available",
+        "PC_REAL": "available",
+        "ANDROID_REAL": "available",
+        "HALO_REAL": "available"
+      },
+      "evidence": []
+    },
+    {
+      "id": "speechLatency",
+      "implementation": "available",
+      "requiredFor": [
+        "ANDROID_REAL"
+      ],
+      "where": "runtime latency samples; audible stages via MeasuredTtsOutput",
+      "status": {
+        "EMULATED": "available",
+        "PC_REAL": "available",
+        "ANDROID_REAL": "available",
+        "HALO_REAL": "available"
+      },
+      "evidence": []
+    },
+    {
+      "id": "echoControl",
+      "implementation": "available",
+      "requiredFor": [
+        "ANDROID_REAL"
+      ],
+      "where": "selfEchoSuspected diagnostic; capture source A/B in debug builds",
+      "status": {
+        "EMULATED": "available",
+        "PC_REAL": "available",
+        "ANDROID_REAL": "available",
+        "HALO_REAL": "available"
+      },
+      "evidence": []
+    },
+    {
+      "id": "stopPanic",
+      "implementation": "available",
+      "requiredFor": [
+        "ANDROID_REAL",
+        "HALO_REAL"
+      ],
+      "where": "HorizonRuntimeController; phone buttons",
+      "status": {
+        "EMULATED": "verified",
+        "PC_REAL": "available",
+        "ANDROID_REAL": "available",
+        "HALO_REAL": "available"
+      },
+      "evidence": [
+        {
+          "environment": "EMULATED",
+          "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+          "artifactSha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+          "recordedAt": "2026-09-27"
+        }
+      ]
+    },
+    {
+      "id": "captionRendering",
+      "implementation": "dormant",
+      "requiredFor": [
+        "HALO_REAL"
+      ],
+      "where": "HaloCaptionComposer via HaloCaptionPath (HORIZON_HALO_CAPTIONS)",
+      "status": {
+        "EMULATED": "verified",
+        "PC_REAL": "dormant",
+        "ANDROID_REAL": "dormant",
+        "HALO_REAL": "dormant"
+      },
+      "evidence": [
+        {
+          "environment": "EMULATED",
+          "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+          "artifactSha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+          "recordedAt": "2026-09-27"
+        }
+      ]
+    },
+    {
+      "id": "translationToDisplay",
+      "implementation": "dormant",
+      "requiredFor": [
+        "HALO_REAL"
+      ],
+      "where": "HaloCaptionPath (HORIZON_HALO_CAPTIONS)",
+      "status": {
+        "EMULATED": "verified",
+        "PC_REAL": "dormant",
+        "ANDROID_REAL": "dormant",
+        "HALO_REAL": "dormant"
+      },
+      "evidence": [
+        {
+          "environment": "EMULATED",
+          "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+          "artifactSha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+          "recordedAt": "2026-09-27"
+        }
+      ]
+    },
+    {
+      "id": "haloConnection",
+      "implementation": "dormant",
+      "requiredFor": [
+        "HALO_REAL"
+      ],
+      "where": "Brilliant BLE transport + BLE permission gate (HORIZON_HALO_CAPTIONS)",
+      "status": {
+        "EMULATED": "dormant",
+        "PC_REAL": "dormant",
+        "ANDROID_REAL": "dormant",
+        "HALO_REAL": "dormant"
+      },
+      "evidence": []
+    },
+    {
+      "id": "haloButton",
+      "implementation": "installed",
+      "requiredFor": [],
+      "where": "Companion emulator path only; not composed in the phone app",
+      "status": {
+        "EMULATED": "installed",
+        "PC_REAL": "installed",
+        "ANDROID_REAL": "installed",
+        "HALO_REAL": "installed"
+      },
+      "evidence": []
+    },
+    {
+      "id": "haloAudio",
+      "implementation": "installed",
+      "requiredFor": [],
+      "where": "halo_real_audio_adapters; unwired, device Lua app not deployed",
+      "status": {
+        "EMULATED": "installed",
+        "PC_REAL": "installed",
+        "ANDROID_REAL": "installed",
+        "HALO_REAL": "installed"
+      },
+      "evidence": []
+    },
+    {
+      "id": "deviceTelemetry",
+      "implementation": "installed",
+      "requiredFor": [],
+      "where": "HaloDeviceAdapter battery/identity; not shown by any app",
+      "status": {
+        "EMULATED": "installed",
+        "PC_REAL": "installed",
+        "ANDROID_REAL": "installed",
+        "HALO_REAL": "installed"
+      },
+      "evidence": []
+    },
+    {
+      "id": "runtimeStream",
+      "implementation": "dormant",
+      "requiredFor": [],
+      "where": "RuntimeEventServer in validation builds (HORIZON_VALIDATION_LOG)",
+      "status": {
+        "EMULATED": "dormant",
+        "PC_REAL": "dormant",
+        "ANDROID_REAL": "dormant",
+        "HALO_REAL": "dormant"
+      },
+      "evidence": []
+    },
+    {
+      "id": "studioHelloHalo",
+      "implementation": "available",
+      "requiredFor": [],
+      "where": "Companion API + Studio Hello Halo panel (emulator target)",
+      "status": {
+        "EMULATED": "verified",
+        "PC_REAL": "available",
+        "ANDROID_REAL": "available",
+        "HALO_REAL": "available"
+      },
+      "evidence": [
+        {
+          "environment": "EMULATED",
+          "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+          "artifactSha256": "322320594904927c5b91bc40770921bfb699033d6c3902543876b0270c25a194",
+          "recordedAt": "2026-09-27"
+        }
+      ]
+    }
+  ],
+  "readiness": {
+    "ANDROID_REAL": {
+      "required": 4,
+      "verified": 0,
+      "missing": [
+        "liveTranslation",
+        "speechLatency",
+        "echoControl",
+        "stopPanic"
+      ]
+    },
+    "HALO_REAL": {
+      "required": 4,
+      "verified": 0,
+      "missing": [
+        "stopPanic",
+        "captionRendering",
+        "translationToDisplay",
+        "haloConnection"
+      ]
+    }
+  },
+  "productFinished": {
+    "verified": 0,
+    "required": 8,
+    "finished": false
+  }
+}

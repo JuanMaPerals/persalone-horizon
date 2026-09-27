@@ -259,6 +259,35 @@ Record: device model, Android version, volume, distance, room, date, APK
 commit, both sidecars, and the manual accuracy table. Evidence without these
 fields is not accepted.
 
+## 8. Record the evidence (the only way a capability becomes VERIFIED)
+
+Readiness is computed, never declared: `evidence/capabilities.v1.json` is
+generated from the capability catalogue (`packages/contracts`,
+`ProductCapabilities`) and `evidence/registry.v1.json`. Today it reads
+ANDROID_REAL 0/4 and HALO_REAL 0/4 (product not finished).
+
+After a physical run that passes section 6, open a PR that adds one record
+per capability it proves to `evidence/registry.v1.json`:
+
+```json
+{"capability": "liveTranslation", "environment": "ANDROID_REAL",
+ "commit": "<40-hex commit of the APK>", "tree": "<40-hex tree of that commit>",
+ "method": "validation pack variant A, 10 phrases + barge-in + Stop/Panic",
+ "artifact": {"name": "variant-A.ndjson", "sha256": "<sha256sum of the file>",
+              "source": "where the file is kept"},
+ "recordedAt": "YYYY-MM-DD", "recorder": "<who ran it>"}
+```
+
+then regenerate and commit the manifest:
+
+```bash
+cd packages/contracts && dart run tool/capabilities.dart
+```
+
+A record for SIMULATED, an unknown field, a malformed hash or a hand-edited
+manifest fails the contracts tests (and CI). A permission grant, a build flag
+or a screen showing a label is never evidence.
+
 ## Phrase list (English source)
 
 1. Good morning, how are you today?
