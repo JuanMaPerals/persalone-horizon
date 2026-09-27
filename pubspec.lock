@@ -61,11 +61,20 @@ packages:
     dependency: transitive
     description:
       path: "flutter/packages/brilliant_ble"
-      ref: "9a4cacf7d395195fad338bdb971b2c1ebf484180"
-      resolved-ref: "9a4cacf7d395195fad338bdb971b2c1ebf484180"
+      ref: "462dff4795cffb85248ab1d2f92d4f319adb03d3"
+      resolved-ref: "462dff4795cffb85248ab1d2f92d4f319adb03d3"
       url: "https://github.com/brilliantlabsAR/brilliant_sdk.git"
     source: git
-    version: "5.0.1"
+    version: "5.1.0"
+  brilliant_msg:
+    dependency: transitive
+    description:
+      path: "flutter/packages/brilliant_msg"
+      ref: "462dff4795cffb85248ab1d2f92d4f319adb03d3"
+      resolved-ref: "462dff4795cffb85248ab1d2f92d4f319adb03d3"
+      url: "https://github.com/brilliantlabsAR/brilliant_sdk.git"
+    source: git
+    version: "4.1.0"
   characters:
     dependency: transitive
     description:
@@ -249,6 +258,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.1.2"
+  image:
+    dependency: transitive
+    description:
+      name: image
+      sha256: a1e7f4951e538a568e14b856702afc9ae1d2f4b202daced8d22c1b9cd211ce89
+      url: "https://pub.dev"
+    source: hosted
+    version: "4.10.1"
   io:
     dependency: transitive
     description:
