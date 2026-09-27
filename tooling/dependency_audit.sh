@@ -2,10 +2,14 @@
 set -euo pipefail
 
 repo_root=$(git rev-parse --show-toplevel)
-case "$repo_root" in
-  */persalone-halo) ;;
+cd "$repo_root"
+# Identify the repository by its origin, not its directory name, so the
+# audit runs in CI and in any worktree of this repository, and nowhere else.
+origin=$(git remote get-url origin 2>/dev/null || true)
+case "$origin" in
+  *[:/]JuanMaPerals/persalone-horizon | *[:/]JuanMaPerals/persalone-horizon.git) ;;
   *)
-    printf '%s\n' "BLOCKED - repository path is not authorized: $repo_root" >&2
+    printf '%s\n' "BLOCKED - repository origin is not authorized: ${origin:-none}" >&2
     exit 1
     ;;
 esac

@@ -74,6 +74,17 @@ Either download the CI artifact `horizon-validation-apk-debug` from the
 gh run download <run-id> --repo JuanMaPerals/persalone-horizon -n horizon-validation-apk-debug
 ```
 
+Check it before installing: the `verify` job summary and the artifact's
+`app-debug.apk.sha256` give its sha256 (`sha256sum -c app-debug.apk.sha256`).
+For a build from a push to this repository, its signed build provenance can
+also be verified:
+
+```bash
+gh attestation verify app-debug.apk --repo JuanMaPerals/persalone-horizon
+```
+
+Record the APK's sha256 with the run; it is part of the evidence (section 8).
+
 or build it locally:
 
 ```bash
