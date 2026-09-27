@@ -189,6 +189,50 @@ void main() {
   });
 
   group('AndroidTextToSpeechProvider', () {
+    test('declares on-device processing', () {
+      expect(
+          AndroidTextToSpeechProvider(bridge: _FakeLiveTranslationBridge())
+              .processingLocation,
+          ProcessingLocation.onDevice);
+      expect(
+          AndroidSpeechRecognizerProvider(bridge: _FakeLiveTranslationBridge())
+              .processingLocation,
+          ProcessingLocation.onDevice);
+      expect(
+          MlKitOnDeviceTranslatorProvider(bridge: _FakeLiveTranslationBridge())
+              .processingLocation,
+          ProcessingLocation.onDevice);
+    });
+
+    test('only network voices: refused, coded and not retryable', () async {
+      final bridge = _FakeLiveTranslationBridge(ttsReady: false)
+        ..ttsReason = AndroidTextToSpeechProvider.networkVoiceRefused;
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+
+      await expectLater(
+        provider.prepare(_config()),
+        throwsA(isA<RuntimeError>()
+            .having((e) => e.code, 'code',
+                RuntimeErrorCode.speechSynthesisUnavailable)
+            .having((e) => e.message, 'message',
+                contains('tts_network_voice_refused'))
+            .having((e) => e.retryable, 'retryable', isFalse)),
+      );
+    });
+
+    test('a non-coded platform reason is never echoed', () async {
+      final bridge = _FakeLiveTranslationBridge(ttsReady: false)
+        ..ttsReason = 'voice "Juan" needs https://example.com';
+      final provider = AndroidTextToSpeechProvider(bridge: bridge);
+      addTearDown(provider.dispose);
+      await expectLater(
+        provider.prepare(_config()),
+        throwsA(isA<RuntimeError>()
+            .having((e) => e.message, 'message', isNot(contains('Juan')))),
+      );
+    });
+
     test('blocks when Android cannot prepare a target locale voice', () async {
       final bridge = _FakeLiveTranslationBridge(ttsReady: false);
       final provider = AndroidTextToSpeechProvider(bridge: bridge);
@@ -474,6 +518,7 @@ final class _FakeLiveTranslationBridge implements AndroidLiveTranslationBridge {
   final bool sttReady;
   final bool modelReady;
   final bool ttsReady;
+  String? ttsReason;
   final bool measuredOutput;
   final String translatedText;
   final sttController = StreamController<Map<Object?, Object?>>.broadcast();
@@ -526,6 +571,7 @@ final class _FakeLiveTranslationBridge implements AndroidLiveTranslationBridge {
   Future<Map<Object?, Object?>> prepareTts({required String locale}) async =>
       <Object?, Object?>{
         'ready': ttsReady,
+        if (ttsReason != null) 'reason': ttsReason,
         'measuredOutput': measuredOutput,
         'outputReason': measuredOutput ? 'streamedAudio' : 'noStreamedAudio',
       };

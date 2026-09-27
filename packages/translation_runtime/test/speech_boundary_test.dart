@@ -165,6 +165,9 @@ final class _Clock {
 }
 
 final class _Stt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<TranscriptSegment> _c =
       StreamController<TranscriptSegment>.broadcast();
 
@@ -204,6 +207,9 @@ final class _Stt implements StreamingSttProvider {
 
 final class _Translator implements TextTranslationProvider {
   @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
+  @override
   String get providerId => 'boundary-translator';
   @override
   String get sourceRevision => 'test';
@@ -230,6 +236,9 @@ final class _Translator implements TextTranslationProvider {
 /// Mirrors the Android provider: `synthesisStarted` when the platform starts
 /// speaking, `synthesisCompleted` when it finishes.
 final class _Tts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<LiveTranslationDiagnostic> _d =
       StreamController<LiveTranslationDiagnostic>.broadcast();
   bool reportsProgress = false;

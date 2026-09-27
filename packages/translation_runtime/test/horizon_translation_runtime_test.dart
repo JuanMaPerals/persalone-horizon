@@ -588,6 +588,9 @@ final class _FakeInput implements AudioInputAdapter {
 }
 
 final class _FakeStt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final transcriptController = StreamController<TranscriptSegment>.broadcast();
   final _snapshots = StreamController<ProviderSnapshot>.broadcast();
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
@@ -633,6 +636,9 @@ final class _FakeStt implements StreamingSttProvider {
 }
 
 final class _FakeTranslator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final _snapshots = StreamController<ProviderSnapshot>.broadcast();
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
   final translated = <TranscriptSegment>[];
@@ -675,6 +681,9 @@ final class _FakeTranslator implements TextTranslationProvider {
 }
 
 final class _FakeTts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final _snapshots = StreamController<ProviderSnapshot>.broadcast();
   final _diagnostics = StreamController<LiveTranslationDiagnostic>.broadcast();
   final spoken = <TranslationSegment>[];

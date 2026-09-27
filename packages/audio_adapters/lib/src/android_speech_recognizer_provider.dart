@@ -9,6 +9,10 @@ import 'android_live_translation_bridge.dart';
 /// microphone: the runtime forwards canonical G3 frames through [push].
 final class AndroidSpeechRecognizerProvider
     implements StreamingSttProvider, ProviderClockDomain {
+  /// On-device only: the platform recognizer is created in on-device mode.
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   AndroidSpeechRecognizerProvider({
     AndroidLiveTranslationBridge? bridge,
     DateTime Function()? clock,

@@ -276,6 +276,9 @@ final class _Clock {
 }
 
 final class _Translator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   _Translator(this.clock);
   final _Clock clock;
   int costMicros = 1000;
@@ -342,6 +345,9 @@ final class _Captions implements CaptionOutputAdapter {
 /// Also reports presentations, as a device-output synthesizer would, on the
 /// same clock domain as [_Stt] unless a test changes it.
 final class _Tts implements SpeechSynthesisProvider, SpeechPresentationReporter {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   _Tts(this.clock);
   final _Clock clock;
   final StreamController<SpeechPresentation> _presentations =
@@ -390,6 +396,9 @@ final class _Tts implements SpeechSynthesisProvider, SpeechPresentationReporter 
 }
 
 final class _Stt implements StreamingSttProvider, ProviderClockDomain {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<TranscriptSegment> controller =
       StreamController<TranscriptSegment>.broadcast();
   String domain = 'test.device_clock';

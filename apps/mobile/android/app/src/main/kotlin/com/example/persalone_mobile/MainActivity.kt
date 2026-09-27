@@ -19,6 +19,7 @@ import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
 import android.speech.tts.TextToSpeech
+import android.speech.tts.Voice
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.google.mlkit.nl.translate.TranslateLanguage
@@ -754,6 +755,12 @@ class MainActivity : FlutterActivity() {
                 result.success(mapOf("ready" to false, "reason" to "tts_locale_set_failed"))
                 return@TextToSpeech
             }
+            // The provider declares on-device processing: never synthesize
+            // with a voice that needs the network (fail closed).
+            if (!selectLocalVoice(tts, locale)) {
+                result.success(mapOf("ready" to false, "reason" to TtsVoicePolicy.refusedReason))
+                return@TextToSpeech
+            }
             val output = MeasuredTtsOutput(::emitTtsEvent)
             ttsOutput = output
             tts.setOnUtteranceProgressListener(output.listener)
@@ -763,6 +770,27 @@ class MainActivity : FlutterActivity() {
                 result.success(mapOf("ready" to true, "measuredOutput" to measured, "outputReason" to reason))
             }
         }
+    }
+
+    private fun voiceInfo(voice: Voice) = TtsVoiceInfo(
+        name = voice.name,
+        language = voice.locale.language,
+        networkRequired = voice.isNetworkConnectionRequired,
+        installed = !voice.features.orEmpty().contains(TextToSpeech.Engine.KEY_FEATURE_NOT_INSTALLED),
+    )
+
+    /** Applies [TtsVoicePolicy]; false when no local installed voice exists. */
+    private fun selectLocalVoice(tts: TextToSpeech, locale: Locale): Boolean {
+        val voices = runCatching { tts.voices.orEmpty() }.getOrDefault(emptySet())
+        val current = runCatching { tts.voice }.getOrNull()
+        val chosen = TtsVoicePolicy.select(
+            locale.language,
+            current?.let(::voiceInfo),
+            voices.map(::voiceInfo),
+        ) ?: return false
+        if (chosen.name == current?.name) return true
+        val voice = voices.firstOrNull { it.name == chosen.name } ?: return false
+        return tts.setVoice(voice) == TextToSpeech.SUCCESS
     }
 
     @Suppress("UNCHECKED_CAST")

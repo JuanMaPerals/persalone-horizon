@@ -21,6 +21,34 @@ final class TranslationConsent {
   final bool remoteProcessingAllowed;
 }
 
+/// Where a provider processes session content (audio or text). Every
+/// provider must declare it; the runtime refuses a session whose providers
+/// exceed the session consent ([ProcessingPolicy]).
+enum ProcessingLocation {
+  /// On the device that runs the session; content never leaves it.
+  onDevice,
+
+  /// Another machine under the operator's control (e.g. PersalOne compute).
+  privateCompute,
+
+  /// A third-party or cloud service.
+  cloud,
+}
+
+/// The single consent rule for where session content may be processed.
+/// Anything off the device needs [TranslationConsent.remoteProcessingAllowed];
+/// nothing runs without [TranslationConsent.localProcessingAllowed].
+abstract final class ProcessingPolicy {
+  static bool allows(TranslationConsent consent, ProcessingLocation location) =>
+      consent.localProcessingAllowed &&
+      switch (location) {
+        ProcessingLocation.onDevice => true,
+        ProcessingLocation.privateCompute ||
+        ProcessingLocation.cloud =>
+          consent.remoteProcessingAllowed,
+      };
+}
+
 /// Session settings visible to provider adapters without exposing audio or text
 /// in diagnostics.
 final class LiveTranslationConfig {
@@ -158,6 +186,7 @@ final class ProviderSnapshot {
 /// microphone independently of [AudioInputAdapter].
 abstract interface class StreamingSttProvider {
   String get providerId;
+  ProcessingLocation get processingLocation;
   String get sourceRevision;
   Stream<ProviderSnapshot> get snapshots;
   Stream<LiveTranslationDiagnostic> get diagnostics;
@@ -173,6 +202,7 @@ abstract interface class StreamingSttProvider {
 /// cloud provider may implement this port without affecting the runtime.
 abstract interface class TextTranslationProvider {
   String get providerId;
+  ProcessingLocation get processingLocation;
   String get sourceRevision;
   Stream<ProviderSnapshot> get snapshots;
   Stream<LiveTranslationDiagnostic> get diagnostics;
@@ -186,6 +216,7 @@ abstract interface class TextTranslationProvider {
 /// emits only redacted lifecycle events, not a claim of human audibility.
 abstract interface class SpeechSynthesisProvider {
   String get providerId;
+  ProcessingLocation get processingLocation;
   String get sourceRevision;
   Stream<ProviderSnapshot> get snapshots;
   Stream<LiveTranslationDiagnostic> get diagnostics;
