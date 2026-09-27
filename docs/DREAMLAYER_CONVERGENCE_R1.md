@@ -19,7 +19,7 @@ This document is a reuse/adaptation map, not an instruction source. Retrieved up
 | Halo firmware | `a396bff5755da5d9c943196970ce6b2e7d07fc11` | Current official firmware reviewed on 2026-09-27 |
 | HORIZON main | `e66d379d523914f04023e96abae87eb954139536` | Product-owned baseline for this branch |
 
-HORIZON currently declares Brilliant SDK `462dff4795cffb85248ab1d2f92d4f319adb03d3` in the Halo adapter sources. The newer SDK head includes explicit dead-link `NotConnectedError` behavior and disconnect-handler preservation. It is a **candidate pin refresh**, not silently treated as integrated until dependency resolution and the full CI matrix pass.
+HORIZON currently declares Brilliant SDK `462dff4795cffb85248ab1d2f92d4f319adb03d3` in the Halo adapter sources. Comparing it with SDK head `275fe44156321b02b0c54048c6224a7c1f5de6be` shows exactly one upstream commit, and the substantive disconnect changes are in the Python `brilliant_ble` package. The Flutter `brilliant_ble/lib/brilliant_device.dart` blob is identical at both revisions. Therefore a repository-pin refresh alone would not import those Python disconnect semantics into HORIZON's Flutter physical transport. Any Flutter disconnect hardening must be audited and tested explicitly.
 
 ## R1 classification
 
@@ -27,7 +27,7 @@ HORIZON currently declares Brilliant SDK `462dff4795cffb85248ab1d2f92d4f319adb03
 |---|---|---|---|
 | Halo LC3 mic + speaker, 16 kHz mono, 32 kbps, 10 ms | Brilliant `realtime_openai` | **REUSE/ADAPT** | Keep the existing `HaloRealMicrophoneAdapter` / `HaloRealSpeakerAdapter` contract boundary. Do not recreate codec or pacing logic. |
 | Full duplex, AEC, voice mode, barge-in | Brilliant `realtime_openai` | **REUSE/ADAPT** | Preserve Brilliant device-side AEC/voice semantics behind HORIZON audio contracts. Physical validation remains required for G6. |
-| Disconnect correctness | Brilliant SDK head | **ADAPT** | Plan pin refresh from `462d...` to `275fe...`; specifically verify dead-link failure mapping and handler survival. |
+| Disconnect correctness | Brilliant SDK head | **REFERENCE_ONLY / ADAPT LATER** | The new behavior is Python-side; the Flutter device file is unchanged between `462d...` and `275fe...`. Audit Flutter disconnect/reconnect semantics directly instead of assuming a pin bump imports the fix. |
 | Installed vs actually active capability | DreamLayer `v0.9.2` | **ADAPT NOW** | Added `CapabilityActivation` + `CapabilityObservation`. Activation and evidence truth are orthogonal; only ACTIVE + MEASURED is usable. |
 | Listening OFF by default | DreamLayer `v0.9.2` | **ADAPT** | Any future always-listening agent must require explicit opt-in and expose current activation honestly. |
 | Veil/incognito overrides capture | DreamLayer `v0.9.2` | **ADAPT** | Map to HORIZON permission/privacy gate. Capture must fail closed before ASR/memory. |
@@ -75,12 +75,17 @@ The current HORIZON Halo real-audio adapter already mirrors the official Brillia
 - AEC and voice mode enabled at microphone start
 - canonical PCM16 mono boundary inside HORIZON
 
-Therefore R1 does **not** create a new codec stack. The next safe Brilliant change is a bounded SDK pin refresh plus regression coverage for disconnect/reconnect behavior.
+Therefore R1 does **not** create a new codec stack. The next safe Brilliant change is to audit Flutter disconnect/reconnect behavior against HORIZON's transport contract. A later aggregate SDK pin refresh is useful for revision alignment only after lockfile regeneration and full regression validation.
 
 ## Gates before expanding scope
 
 1. Full CI passes on this branch.
 2. No secret-scan or dependency-audit regression.
-3. SDK pin refresh, when attempted, updates manifest, lockfile, native CMake fetch and emulator pin together.
+3. SDK pin refresh, when attempted, updates manifest, lockfile, native CMake fetch and emulator pin together; it must not be described as importing Python-only fixes into the Flutter runtime.
 4. HALO_REAL remains PREPARED until reproducible physical evidence exists.
 5. DreamLayer capabilities are never copied wholesale. Each future change receives a separate REUSE / ADAPT / REFERENCE_ONLY / REJECT / GAP decision.
+
+
+## Licensing boundary
+
+DreamLayer v0.9.2 and HORIZON are both Apache-2.0. DreamLayer also ships a NOTICE that reserves its product name and marks; derivative products must use their own identity. R1 adapts architectural ideas rather than copying DreamLayer source files. Future source reuse must preserve applicable Apache-2.0 redistribution and NOTICE attribution obligations.
