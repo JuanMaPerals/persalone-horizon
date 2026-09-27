@@ -1,0 +1,8 @@
+# Known-vulnerability exceptions for the vulnerability-audit CI job.
+# Each entry needs a reason and an ignoreUntil date; an expired entry fails
+# the audit again. Keep this empty unless a fix is not yet possible.
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2026-12-31
+# reason = "why it cannot be fixed yet and why it is not exploitable here"

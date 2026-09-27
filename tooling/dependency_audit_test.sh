@@ -7,7 +7,7 @@ source_script="$script_dir/dependency_audit.sh"
 tmp_root=$(mktemp -d)
 trap 'rm -rf "$tmp_root"' EXIT
 
-repo="$tmp_root/persalone-halo"
+repo="$tmp_root/any-directory-name"
 mkdir -p "$repo/tooling"
 cp "$source_script" "$repo/tooling/dependency_audit.sh"
 
@@ -16,6 +16,7 @@ cp "$source_script" "$repo/tooling/dependency_audit.sh"
   git init -q
   git config user.email test@example.invalid
   git config user.name 'Dependency Audit Test'
+  git remote add origin https://github.com/JuanMaPerals/persalone-horizon.git
 
   cat > pubspec.yaml <<'YAML'
 name: fixture
@@ -32,7 +33,7 @@ YAML
   bash tooling/dependency_audit.sh
 
   sed -i '/ref:/d' pubspec.yaml
-  if bash tooling/dependency_audit.sh >/tmp/dependency-audit.out 2>/tmp/dependency-audit.err; then
+  if bash tooling/dependency_audit.sh "$tmp_root"/dependency-audit.out 2"$tmp_root"/dependency-audit.err; then
     printf '%s\n' 'Expected unpinned git dependency to fail.' >&2
     exit 1
   fi
@@ -43,7 +44,7 @@ publish_to: none
 dependency_overrides:
   unsafe: any
 YAML
-  if bash tooling/dependency_audit.sh >/tmp/dependency-override.out 2>/tmp/dependency-override.err; then
+  if bash tooling/dependency_audit.sh "$tmp_root"/dependency-override.out 2"$tmp_root"/dependency-override.err; then
     printf '%s\n' 'Expected dependency_overrides to fail.' >&2
     exit 1
   fi
