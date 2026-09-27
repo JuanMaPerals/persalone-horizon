@@ -89,3 +89,13 @@ Therefore R1 does **not** create a new codec stack. The next safe Brilliant chan
 ## Licensing boundary
 
 DreamLayer v0.9.2 and HORIZON are both Apache-2.0. DreamLayer also ships a NOTICE that reserves its product name and marks; derivative products must use their own identity. R1 adapts architectural ideas rather than copying DreamLayer source files. Future source reuse must preserve applicable Apache-2.0 redistribution and NOTICE attribution obligations.
+
+## R2: Halo reconnect fail-closed (Brilliant ADAPT)
+
+**Bug (CONFIRMED in source, SDK `462dff4`):** `BrilliantDevice.connectionState` emits a **new** `BrilliantDevice` on every change: a disconnected instance on loss, and after reconnection one built by `enableServices()` with freshly discovered GATT characteristics. `OfficialBrilliantHaloTransport._adopt()` only mapped those events to a link boolean and kept the first instance, whose `state` field still read `connected`. After an unexpected loss the transport kept accepting operations (false READY), after Android's own reconnection it kept writing to stale characteristics, and Halo audio decoding (`RxAudio`) stayed attached to the lost link. The SDK stream is also not filtered by device: events of any other BLE peripheral reached the listener.
+
+**Fix:** always adopt the newest instance of **this** Halo (same `remoteId`; other devices are ignored). A disconnected instance blocks every operation and detaches audio; a reconnected instance is adopted only if it is a Halo with the Lua TX/RX service; a broken state stream fails closed (`_device = null`) until an explicit `reconnect()` adopts a new instance.
+
+**Regression (EMULATED-free, real SDK objects, no platform):** `packages/halo_adapter/test/official_transport_reconnect_test.dart` — READY → unexpected loss → operations BLOCKED (no write) → reconnect → NEW instance adopted → READY → operation OK on the new instance; stale-instance, broken-stream, missing-Lua-service and foreign-device cases. With the previous behaviour 5 of 6 tests fail; each part of the fix is mutation-checked (5/5).
+
+**Truth:** transport behaviour only; HALO_REAL stays BLOCKED_HARDWARE. No SDK pin change (the dependency drift stays a separate, atomic change).
