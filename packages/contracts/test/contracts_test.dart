@@ -17,6 +17,44 @@ void main() {
     });
   });
 
+
+  group('CapabilityObservation', () {
+    test('active PREPARED capability is not usable', () {
+      const CapabilityObservation observation = CapabilityObservation(
+        capability: Capability.microphoneCapture,
+        activation: CapabilityActivation.active,
+        truthLabel: TruthLabel.prepared,
+        sourceRevision: 'dreamlayer-v0.9.2-adaptation',
+      );
+
+      expect(observation.isOperational, isTrue);
+      expect(observation.isUsable, isFalse);
+    });
+
+    test('MEASURED dormant capability is not usable', () {
+      const CapabilityObservation observation = CapabilityObservation(
+        capability: Capability.microphoneCapture,
+        activation: CapabilityActivation.dormant,
+        truthLabel: TruthLabel.measured,
+        sourceRevision: 'fixture',
+      );
+
+      expect(observation.isOperational, isFalse);
+      expect(observation.isUsable, isFalse);
+    });
+
+    test('only active MEASURED capability is usable', () {
+      const CapabilityObservation observation = CapabilityObservation(
+        capability: Capability.microphoneCapture,
+        activation: CapabilityActivation.active,
+        truthLabel: TruthLabel.measured,
+        sourceRevision: 'fixture',
+      );
+
+      expect(observation.isUsable, isTrue);
+    });
+  });
+
   group('TranslationSession', () {
     test('rejects a frame from an older stream epoch', () {
       const TranslationSession session = TranslationSession(
