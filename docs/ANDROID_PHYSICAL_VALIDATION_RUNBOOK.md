@@ -43,7 +43,7 @@ No conceda permisos de cámara, ubicación, Bluetooth, almacenamiento o contacto
 Ejecute desde una copia limpia de la rama/commit candidato. Este es el comando exacto de build debug; no requiere crear keystore ni publicar nada.
 
 ```bash
-cd /ruta/a/persalone-halo
+cd /ruta/a/persalone-horizon
 
 git fetch origin --prune
 git switch <rama-candidata>

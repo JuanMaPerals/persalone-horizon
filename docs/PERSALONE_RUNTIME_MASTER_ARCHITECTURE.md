@@ -1,5 +1,7 @@
 # PersalOne Runtime — arquitectura maestra y plan de ejecución
 
+> **Documento histórico (julio de 2026).** Describe el diseño previo al código actual (entre otras cosas, un Companion y un simulador en Python que no existen en este repositorio, y el nombre antiguo del repositorio, `persalone-halo`, hoy `persalone-horizon`). No describe el estado del sistema: el estado vigente se genera desde la evidencia en [STATUS.md](STATUS.md).
+
 **Estado:** borrador de arquitectura; pendiente de aprobación de Juan Ma Perals antes de reanudar desarrollo, despliegue o cambios de infraestructura.  
 **Fecha:** 24 de julio de 2026.  
 **Principio de verdad:** `DOCUMENTED` no significa `MEASURED`; una simulación nunca se presenta como capacidad física.  

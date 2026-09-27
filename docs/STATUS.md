@@ -1,29 +1,45 @@
-# Estado verificable de gates
+# Estado verificable
 
-**Actualizado:** 2026-08-19
+**Regla:** el estado se calcula a partir de evidencia registrada, no se escribe a mano. La tabla de abajo se genera desde el catálogo de capacidades (`packages/contracts`, `ProductCapabilities`) y el registro de evidencias (`evidence/registry.v1.json`); los tests de `contracts` (y CI) fallan si alguien la edita o si queda desfasada. Código, flags, endpoints, UI o permisos concedidos nunca cuentan como verificación.
 
-> La regla sigue siendo la misma: el estado se basa en gates de aceptación, no en volumen de código. `PREPARED` no equivale a `MEASURED`.
+**Escalera de evidencia:** SIMULATED → EMULATED → PC_REAL → ANDROID_REAL → HALO_REAL. Una simulación nunca verifica nada; una ejecución en el emulador oficial de Brilliant solo verifica en EMULATED.
 
-| Gate | Estado en la rama G0/G1 | Evidencia actual | Límite explícito |
-|---|---|---|---|
-| G0 — gobernanza automatizable | `PREPARED` | `CONTRIBUTING.md` y `SECURITY.md` corregidos; preflight versionado; workflows de verificación, secret scan y SBOM. | No confirma protección de `main`, reporte privado ni características de GitHub que requieren acción del propietario. |
-| G1 — Flutter y contratos | `PREPARED` | Shell Android/iOS generado; contratos Dart versionados; análisis y pruebas locales verdes. | No hay adaptador Halo, BLE, audio, proveedor, agente ni OTA. |
-| G2 — conectividad Halo | `BLOCKED` | No se ha añadido código de conexión o discovery. | Requiere versiones fijadas de firmware/SDK y ensayos físicos. |
-| G3 — entrada aislada | `BLOCKED` | No hay micrófono ni transporte de captura. | Ninguna captura física está acreditada. |
-| G4 — salida aislada | `BLOCKED` | No hay playback ni confirmación humana. | Ninguna salida física está acreditada. |
-| G5 — conversación | `BLOCKED` | No hay STT, MT, TTS ni proveedor. | No se declara traducción audible. |
-| G6 — duplex/AEC | `BLOCKED` | No hay rutas simultáneas ni ensayos. | No se declara full-duplex, barge-in o AEC. |
-| G7 — agentes | `BLOCKED` | No hay runtime ni manifiestos de agentes. | No se habilitan herramientas, BLE, audio ni Lua para agentes. |
-| G8 — release móvil | `BLOCKED` | No hay firma, despliegue ni flujo de tiendas. | No se publica ni se automatiza release. |
+**Qué falta para el producto:** ANDROID_REAL se obtiene con el pack de validación física (`ANDROID_PHYSICAL_VALIDATION_PACK.md`, sección 8 para registrar la evidencia). HALO_REAL necesita un Halo físico y sigue `BLOCKED_HARDWARE`.
 
-## Validación local de G1
+Estados de implementación: `unavailable` (sin código), `installed` (código sin componer en ninguna app), `dormant` (compuesto pero apagado salvo flag), `available` (compuesto y alcanzable por defecto), `verified` (medición registrada en ese entorno).
 
-La rama ejecutó correctamente `flutter analyze`, dos pruebas de contratos (`dart test` en `packages/contracts`) y dos pruebas de widgets (`flutter test` en `apps/mobile`). El workflow CI todavía requiere su primera ejecución en GitHub antes de poder seleccionarse como check obligatorio.
+<!-- BEGIN GENERATED: dart run tool/capabilities.dart (packages/contracts) -->
+
+| Capability | Implementation | EMULATED | ANDROID_REAL | HALO_REAL | Required for |
+|---|---|---|---|---|---|
+| `liveTranslation` | available | available | available | available | ANDROID_REAL |
+| `speechLatency` | available | available | available | available | ANDROID_REAL |
+| `echoControl` | available | available | available | available | ANDROID_REAL |
+| `stopPanic` | available | **VERIFIED** | available | available | ANDROID_REAL, HALO_REAL |
+| `captionRendering` | dormant | **VERIFIED** | dormant | dormant | HALO_REAL |
+| `translationToDisplay` | dormant | **VERIFIED** | dormant | dormant | HALO_REAL |
+| `haloConnection` | dormant | dormant | dormant | dormant | HALO_REAL |
+| `haloButton` | installed | installed | installed | installed | — |
+| `haloAudio` | installed | installed | installed | installed | — |
+| `deviceTelemetry` | installed | installed | installed | installed | — |
+| `runtimeStream` | dormant | dormant | dormant | dormant | — |
+| `studioHelloHalo` | available | **VERIFIED** | available | available | — |
+
+| Product target | Verified / required | Missing |
+|---|---|---|
+| ANDROID_REAL | 0 / 4 | `liveTranslation`, `speechLatency`, `echoControl`, `stopPanic` |
+| HALO_REAL | 0 / 4 | `stopPanic`, `captionRendering`, `translationToDisplay`, `haloConnection` |
+
+**PRODUCT_FINISHED:** 0 / 8 — not finished.
+
+<!-- END GENERATED -->
+
+Para regenerar tras añadir evidencia:
+
+```bash
+cd packages/contracts && dart run tool/capabilities.dart
+```
 
 ## Acciones manuales pendientes
 
 El propietario debe completar y verificar los ajustes indicados en [GITHUB_MANUAL_SETTINGS.md](GITHUB_MANUAL_SETTINGS.md). Hasta entonces, no se afirma que `main` esté protegida ni que exista un canal privado de vulnerabilidades.
-
-## Proximidad permitida
-
-Tras la revisión y merge de G0/G1, el próximo trabajo debe comenzar con una decisión explícita sobre G2. No se habilitan integración BLE, audio, proveedor, agente ni OTA sin una autorización posterior.
