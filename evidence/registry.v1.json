@@ -1,0 +1,61 @@
+{
+  "schema": "horizon.evidence-registry.v1",
+  "records": [
+    {
+      "capability": "captionRendering",
+      "environment": "EMULATED",
+      "commit": "35bdb2be02fa06d6334adeb11e2e8a471eece510",
+      "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+      "method": "caption_composer_e2e_emulated_test against the official Brilliant halo-emulator (composer_*.png framebuffers)",
+      "artifact": {
+        "name": "e2e-emulated-framebuffers",
+        "sha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+        "source": "GitHub Actions verify run 36263156193, artifact 10913077974"
+      },
+      "recordedAt": "2026-09-27",
+      "recorder": "Claude Code session; artifact zip re-downloaded and sha256 checked against the GitHub digest"
+    },
+    {
+      "capability": "translationToDisplay",
+      "environment": "EMULATED",
+      "commit": "35bdb2be02fa06d6334adeb11e2e8a471eece510",
+      "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+      "method": "e2e_emulated_test: G5 runtime turn to the official emulator framebuffer (e2e_emulated_*.png)",
+      "artifact": {
+        "name": "e2e-emulated-framebuffers",
+        "sha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+        "source": "GitHub Actions verify run 36263156193, artifact 10913077974"
+      },
+      "recordedAt": "2026-09-27",
+      "recorder": "Claude Code session; artifact zip re-downloaded and sha256 checked against the GitHub digest"
+    },
+    {
+      "capability": "stopPanic",
+      "environment": "EMULATED",
+      "commit": "35bdb2be02fa06d6334adeb11e2e8a471eece510",
+      "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+      "method": "control_e2e_emulated_test: Stop and Panic clear the official emulator framebuffer (control_e2e_*.png)",
+      "artifact": {
+        "name": "e2e-emulated-framebuffers",
+        "sha256": "7196981f2d15bb2c88daf4240be49b84dd8fcf5112602a80f4148efbafb4e4bb",
+        "source": "GitHub Actions verify run 36263156193, artifact 10913077974"
+      },
+      "recordedAt": "2026-09-27",
+      "recorder": "Claude Code session; artifact zip re-downloaded and sha256 checked against the GitHub digest"
+    },
+    {
+      "capability": "studioHelloHalo",
+      "environment": "EMULATED",
+      "commit": "35bdb2be02fa06d6334adeb11e2e8a471eece510",
+      "tree": "2847318fe67e6a58c2bc8e6b7fd138009ff7267c",
+      "method": "studio-e2e Playwright journey through the Companion and the official emulator (studio-*.png)",
+      "artifact": {
+        "name": "studio-hello-halo-journey",
+        "sha256": "322320594904927c5b91bc40770921bfb699033d6c3902543876b0270c25a194",
+        "source": "GitHub Actions verify run 36263156193, artifact 10913197516"
+      },
+      "recordedAt": "2026-09-27",
+      "recorder": "Claude Code session; artifact zip re-downloaded and sha256 checked against the GitHub digest"
+    }
+  ]
+}
