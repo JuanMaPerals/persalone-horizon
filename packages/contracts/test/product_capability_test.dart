@@ -38,6 +38,13 @@ void main() {
     expect(committed, tool.render());
   });
 
+  test('docs/STATUS.md shows exactly the generated status', () {
+    final String status = File('../../docs/STATUS.md').readAsStringSync();
+    expect(status, tool.renderStatusFile(status),
+        reason: 'regenerate with: dart run tool/capabilities.dart');
+    expect(status, contains('**PRODUCT_FINISHED:** 0 / 8'));
+  });
+
   test('without evidence nothing is verified and readiness is zero', () {
     final Map<String, Object?> manifest =
         ProductCapabilityManifest.build(const <EvidenceRecord>[]);

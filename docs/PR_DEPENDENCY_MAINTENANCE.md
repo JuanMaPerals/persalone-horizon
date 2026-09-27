@@ -19,7 +19,7 @@ Una rama puede depender de otra mientras la dependencia quede explícita en el c
 El mantenedor ejecuta estos pasos desde una copia limpia del repositorio. Sustituya los marcadores por ramas reales; no copie credenciales, material privado ni evidencia de usuarios en los mensajes o commits.
 
 ```bash
-cd /ruta/a/persalone-halo
+cd /ruta/a/persalone-horizon
 git fetch origin --prune
 git switch <rama-dependiente>
 git status --short
