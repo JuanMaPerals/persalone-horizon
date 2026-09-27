@@ -31,6 +31,22 @@ object ValidationSupport {
         if (requested == null || !debuggable) return CaptureSource.VOICE_RECOGNITION
         return CaptureSource.values().firstOrNull { it.wire == requested }
     }
+
+    /**
+     * `physical` or `emulator`, from the build identifiers. Only `physical`
+     * lets the app label Android measurements ANDROID_REAL, so any sign of an
+     * emulator (AVD goldfish/ranchu, SDK images, Genymotion vbox86) wins.
+     */
+    fun deviceClass(fingerprint: String, hardware: String, product: String, model: String): String {
+        val emulator = fingerprint.startsWith("generic") ||
+            fingerprint.contains("emulator", ignoreCase = true) ||
+            hardware in setOf("goldfish", "ranchu", "vbox86") ||
+            product.contains("sdk", ignoreCase = true) ||
+            product.contains("emulator", ignoreCase = true) ||
+            model.contains("Emulator", ignoreCase = true) ||
+            model.contains("Android SDK built for", ignoreCase = true)
+        return if (emulator) "emulator" else "physical"
+    }
 }
 
 enum class CaptureSource(val wire: String, val androidSource: Int, val attachEchoCanceler: Boolean) {

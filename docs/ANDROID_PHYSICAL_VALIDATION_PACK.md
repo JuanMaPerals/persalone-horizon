@@ -12,6 +12,7 @@ Loop under test: **mic → STT → translation → TTS → (speaker) → mic**.
 | AEC (`VOICE_COMMUNICATION` + AcousticEchoCanceler) | BLOCKED_HARDWARE — selectable, availability unknown per device |
 | `speechEndToFinal` and every other latency on device | BLOCKED_HARDWARE — only EMULATED/SIMULATED numbers exist |
 | `speechQueuedToAudible`, `speechEndToAudible` | BLOCKED_HARDWARE — measurable path built; UNKNOWN until a phone reports it |
+| ANDROID_REAL label | Built: provider-measured stages are labelled ANDROID_REAL only when capture reports `deviceClass: physical` |
 | Kotlin / JVM | VERIFIED in CI (`android-apk` job compiles Kotlin and runs `ValidationSupportTest`, `TtsPresentationTest`) |
 
 ## What the pack adds
@@ -138,6 +139,12 @@ adb exec-out run-as com.example.persalone_mobile cat <path-without-.ndjson>.meta
 The sidecar must show the source actually used (`audioSource`) and whether
 the echo canceller was available and enabled (`aecAvailable`, `aecEnabled`).
 If `audioSource` does not match the variant, discard the run.
+
+It also records `deviceClass` (`physical` or `emulator`, from the platform's
+build identifiers). Only on `physical` are the Android providers' latency
+samples labelled **ANDROID_REAL**; otherwise they stay unlabelled (UNKNOWN).
+A run whose sidecar does not say `physical` is not physical evidence: discard
+it. The label is never set from the build type or by hand.
 
 It also shows the speech output path (`ttsMeasuredOutput`, `ttsOutputReason`).
 With `false`, the audible stages must read UNKNOWN; any audible sample in such

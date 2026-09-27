@@ -173,6 +173,7 @@ final class RuntimeEvent {
         ExecutionEnvironment.simulated => 'SIMULATED',
         ExecutionEnvironment.emulated => 'EMULATED',
         ExecutionEnvironment.pcReal => 'PC_REAL',
+        ExecutionEnvironment.androidReal => 'ANDROID_REAL',
         ExecutionEnvironment.haloReal => 'HALO_REAL',
       };
 

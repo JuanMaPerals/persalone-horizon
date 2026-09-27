@@ -4,7 +4,16 @@ import 'truth_label.dart';
 /// Execution path that rendered or attempted to render an output. This is not
 /// evidence: a delivery on [haloReal] still carries its own [TruthLabel], and a
 /// fixture must never report [emulated] or [haloReal].
-enum ExecutionEnvironment { simulated, emulated, pcReal, haloReal }
+enum ExecutionEnvironment {
+  simulated,
+  emulated,
+  pcReal,
+
+  /// Measured by the real Android platform on a physical phone (never an
+  /// Android emulator, never by build type alone).
+  androidReal,
+  haloReal,
+}
 
 enum CaptionDeliveryStatus { delivered, blocked, failed }
 

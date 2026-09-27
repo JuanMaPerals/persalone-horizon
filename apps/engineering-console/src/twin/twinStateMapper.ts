@@ -6,7 +6,7 @@
 // Rules:
 // - Not LIVE (connecting, disconnected, unavailable, unsupported) => every
 //   component and segment is UNKNOWN/inactive. Never the last green state.
-// - Execution environment (SIMULATED/EMULATED/PC_REAL/HALO_REAL/UNKNOWN/
+// - Execution environment (SIMULATED/EMULATED/PC_REAL/ANDROID_REAL/HALO_REAL/UNKNOWN/
 //   BLOCKED) and evidence (PREPARED/MEASURED/HARDWARE_OBSERVED/UNKNOWN) are
 //   separate fields, taken only from events that carry them.
 // - A segment is active only while the current session is listening and an
