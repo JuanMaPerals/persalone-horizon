@@ -78,7 +78,7 @@ Product development happens only in this repository. Halo firmware and the Brill
 
 | Repository | Role | Boundary |
 |---|---|---|
-| [`JuanMaPerals/persalone-halo`](https://github.com/JuanMaPerals/persalone-halo) | HORIZON product, contracts, tests, documentation, and PRs. | The sole product write target. |
+| [`JuanMaPerals/persalone-horizon`](https://github.com/JuanMaPerals/persalone-horizon) | HORIZON product, contracts, tests, documentation, and PRs. | The sole product write target. |
 | [`brilliantlabsAR/halo-firmware`](https://github.com/brilliantlabsAR/halo-firmware) | Firmware, BLE, Lua, audio, display, sensors, pairing, and OTA evidence. | Read-only upstream. No modifications, flashing, or PRs from HORIZON work. |
 | [`brilliantlabsAR/brilliant_sdk`](https://github.com/brilliantlabsAR/brilliant_sdk) | Official Flutter, Android, iOS, BLE, transport, and audio SDK reference. | Read-only upstream. HORIZON may adapt verified interfaces without duplicating proven SDK behavior. |
 
@@ -99,7 +99,7 @@ Until those gates are passed, a future-facing product narrative will not be subs
 
 ## Build with the community
 
-HORIZON is private while its contribution, security, developer, and evidence practices become reliable. The project is preparing for a community that values useful agents, inclusive interfaces, hardware honesty, security review, and contributors who can build on stable contracts rather than reverse-engineered assumptions.
+HORIZON is public while its contribution, security, developer, and evidence practices become reliable. The project is preparing for a community that values useful agents, inclusive interfaces, hardware honesty, security review, and contributors who can build on stable contracts rather than reverse-engineered assumptions.
 
 Contributors will eventually be able to create agents for translation, vision, accessibility, meetings, assist, security, and other community needs. Public launch is not a marketing deadline: it is a gate that requires green CI, an active security baseline, truthful documentation, real end-to-end speech translation, a contract-compatible Halo simulator, a polished state-driven UI, usable documentation, and explicit disclosure that physical Halo behavior is not `MEASURED` until physically validated.
 

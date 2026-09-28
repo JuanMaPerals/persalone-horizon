@@ -1,5 +1,22 @@
 # HALO Engineering Console V2
 
+
+## Quick start
+
+Requires Node.js 22 and Corepack. The repository pins pnpm in `package.json`.
+
+```bash
+corepack enable
+pnpm install --frozen-lockfile
+pnpm test
+pnpm lint
+pnpm build
+pnpm dev
+```
+
+Open the Vite URL shown in the terminal. The dashboard works immediately with truthful fixture data. The **Hello Halo (Studio)** journey additionally requires the local HORIZON Companion and official Halo emulator; its browser E2E gate is `pnpm e2e`.
+
+
 This application is the **engineering workstation** for HALO traces. It is intentionally separate from the Flutter companion: the companion remains responsible for device and audio boundaries, while this console presents normalized engineering evidence for investigation, replay, and operational debugging.
 
 The initial workspace contains a dockable execution graph, timeline with replay, shared inspector, trace logs, BLE monitor, translation inspector, memory/RAG policy view, metrics panel, session selector, search, command palette, and browser-local layout persistence. Panel interactions share a single `FocusTarget`, so a timeline, graph, or log selection resolves to the same inspector subject.
