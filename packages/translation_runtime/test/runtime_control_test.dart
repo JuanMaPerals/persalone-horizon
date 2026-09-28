@@ -243,6 +243,79 @@ void main() {
     });
   });
 
+  group('Privacy revocation', () {
+    test('local revoke invalidates capture and requires a fresh session',
+        () async {
+      await r.startListening();
+      final TranslationSession first = r.stt.lastConfig!.session;
+
+      final CommandResult revoked = await r.control.execute(
+          PrivacyRevokeCommand(commandId: r.id(), origin: ControlOrigin.local));
+
+      expect(revoked.status, CommandStatus.accepted);
+      expect(r.control.activeSessionId, isNull);
+      expect(r.input.running, isFalse);
+      expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
+
+      expect((await r.start()).status, CommandStatus.accepted);
+      final TranslationSession second = r.stt.lastConfig!.session;
+      expect(second.sessionId, isNot(first.sessionId));
+      expect(second.streamEpoch, greaterThan(first.streamEpoch));
+      expect(second.privacyGeneration, greaterThan(first.privacyGeneration));
+    });
+
+    test('late translation after revoke is discarded', () async {
+      await r.startListening();
+      r.translator.gate = Completer<void>();
+      r.finalTurn(1);
+      await r.until(() => r.translator.started == 1);
+
+      final Future<CommandResult> revoke = r.control.execute(
+          PrivacyRevokeCommand(commandId: r.id(), origin: ControlOrigin.local));
+      r.translator.gate!.complete();
+      expect((await revoke).status, CommandStatus.accepted);
+      await r.settle();
+
+      expect(r.captions.shown, isEmpty);
+      expect(r.tts.spoken, isEmpty);
+    });
+
+    test('remote and idle revocation fail closed', () async {
+      expect(
+          (await r.control.execute(PrivacyRevokeCommand(
+                  commandId: r.id(), origin: ControlOrigin.local)))
+              .rejection,
+          CommandRejection.noActiveSession);
+      await r.startListening();
+      expect(
+          (await r.control.execute(PrivacyRevokeCommand(
+                  commandId: r.id(), origin: ControlOrigin.remote)))
+              .rejection,
+          CommandRejection.remoteNotAllowed);
+      expect(r.input.running, isTrue);
+    });
+
+    test('a command queued before revoke never executes afterwards', () async {
+      await r.startListening();
+      final Completer<void> stopGate = r.input.stopGate = Completer<void>();
+      final Future<CommandResult> stop = r.control.execute(StopCommand(
+          commandId: r.id(),
+          origin: ControlOrigin.local,
+          sessionId: r.control.activeSessionId!));
+      final Future<CommandResult> queuedStart = r.start();
+      await r.until(() => r.input.stopCalls == 1);
+
+      final Future<CommandResult> revoke = r.control.execute(
+          PrivacyRevokeCommand(commandId: r.id(), origin: ControlOrigin.local));
+      stopGate.complete();
+      await stop;
+      expect((await revoke).status, CommandStatus.accepted);
+      expect((await queuedStart).rejection,
+          CommandRejection.supersededByPrivacyRevocation);
+      expect(r.input.running, isFalse);
+    });
+  });
+
   group('control policy', () {
     test('remote may only STOP, PANIC and disconnect the device', () async {
       final List<RuntimeCommand> forbidden = <RuntimeCommand>[
@@ -252,6 +325,7 @@ void main() {
             commandId: r.id(),
             origin: ControlOrigin.remote,
             direction: TranslationDirection.spanishToEnglish),
+        PrivacyRevokeCommand(commandId: r.id(), origin: ControlOrigin.remote),
         DeviceSelectCommand(
             commandId: r.id(), origin: ControlOrigin.remote, deviceId: 'd1'),
       ];

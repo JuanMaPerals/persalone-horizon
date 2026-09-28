@@ -10,6 +10,7 @@ enum RuntimeCommandKind {
   start,
   stop,
   panic,
+  privacyRevoke,
   setLanguage,
   deviceSelect,
   deviceDisconnect,
@@ -32,6 +33,7 @@ sealed class RuntimeCommand {
         RuntimeCommandKind.deviceDisconnect =>
           true,
         RuntimeCommandKind.start ||
+        RuntimeCommandKind.privacyRevoke ||
         RuntimeCommandKind.setLanguage ||
         RuntimeCommandKind.deviceSelect =>
           false,
@@ -72,6 +74,15 @@ final class PanicCommand extends RuntimeCommand {
 
   @override
   RuntimeCommandKind get kind => RuntimeCommandKind.panic;
+}
+
+/// Revokes consent for the active capture session. Local-only: resuming
+/// requires an explicit new [StartCommand] and fresh consent.
+final class PrivacyRevokeCommand extends RuntimeCommand {
+  const PrivacyRevokeCommand({required super.commandId, required super.origin});
+
+  @override
+  RuntimeCommandKind get kind => RuntimeCommandKind.privacyRevoke;
 }
 
 /// Applies to the next session only; rejected while a session is active.
@@ -126,6 +137,9 @@ enum CommandRejection {
 
   /// A command queued before a Panic is never executed after it.
   supersededByPanic,
+
+  /// A command queued before local privacy revocation is never executed.
+  supersededByPrivacyRevocation,
 }
 
 /// Redacted outcome of one command: identifiers, enums and component tokens

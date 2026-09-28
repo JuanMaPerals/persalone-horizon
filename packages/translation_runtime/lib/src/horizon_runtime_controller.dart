@@ -52,7 +52,10 @@ final class HorizonRuntimeController implements RuntimeControlPort {
   final Map<String, DeviceDiscovery> _discovered = <String, DeviceDiscovery>{};
   Future<void> _queue = Future<void>.value();
   int _panicGeneration = 0;
+  int _privacyFence = 0;
   int _sessionCounter = 0;
+  int _lastStreamEpoch = 0;
+  int _lastPrivacyGeneration = 0;
   int _generation = 0;
   TranslationDirection _pending;
   TranslationDirection? _effective;
@@ -85,10 +88,23 @@ final class HorizonRuntimeController implements RuntimeControlPort {
       _panicGeneration++;
       return _panic(command);
     }
-    final int generation = _panicGeneration;
+    if (command is PrivacyRevokeCommand) {
+      if (!_sessionActive) {
+        return Future<CommandResult>.value(
+            _reject(command, CommandRejection.noActiveSession));
+      }
+      _privacyFence++;
+      _endSession();
+      return _privacyRevoke(command);
+    }
+    final int panicGeneration = _panicGeneration;
+    final int privacyFence = _privacyFence;
     final Future<CommandResult> result = _queue.then((_) {
-      if (generation != _panicGeneration) {
+      if (panicGeneration != _panicGeneration) {
         return _reject(command, CommandRejection.supersededByPanic);
+      }
+      if (privacyFence != _privacyFence) {
+        return _reject(command, CommandRejection.supersededByPrivacyRevocation);
       }
       return _run(command);
     });
@@ -121,6 +137,8 @@ final class HorizonRuntimeController implements RuntimeControlPort {
         return _disconnectDevice(command);
       case PanicCommand():
         return _panic(command);
+      case PrivacyRevokeCommand():
+        return _privacyRevoke(command);
     }
   }
 
@@ -132,12 +150,17 @@ final class HorizonRuntimeController implements RuntimeControlPort {
       return _reject(command, CommandRejection.consentRequired);
     }
     final int now = _clock().microsecondsSinceEpoch;
+    final int streamEpoch = now > _lastStreamEpoch ? now : _lastStreamEpoch + 1;
+    final int privacyGeneration =
+        now > _lastPrivacyGeneration ? now : _lastPrivacyGeneration + 1;
+    _lastStreamEpoch = streamEpoch;
+    _lastPrivacyGeneration = privacyGeneration;
     final TranslationDirection direction = _pending;
     final TranslationSession session = TranslationSession(
-      sessionId: 'session-$now-${++_sessionCounter}',
-      streamEpoch: now,
+      sessionId: 'session-$streamEpoch-${++_sessionCounter}',
+      streamEpoch: streamEpoch,
       direction: direction,
-      privacyGeneration: now,
+      privacyGeneration: privacyGeneration,
     );
     final (String source, String target) =
         direction == TranslationDirection.englishToSpanish
@@ -186,6 +209,14 @@ final class HorizonRuntimeController implements RuntimeControlPort {
   }
 
   Future<CommandResult> _panic(PanicCommand command) async {
+    final List<String> failed = await _runtime.panic();
+    _endSession();
+    return _accept(command, failedCleanup: failed);
+  }
+
+  Future<CommandResult> _privacyRevoke(PrivacyRevokeCommand command) async {
+    // panic() invalidates runtime session/turn work synchronously before its
+    // first await and reuses the existing fail-closed teardown path.
     final List<String> failed = await _runtime.panic();
     _endSession();
     return _accept(command, failedCleanup: failed);
