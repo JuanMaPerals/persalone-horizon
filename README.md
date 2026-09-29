@@ -101,7 +101,7 @@ Until those gates are passed, a future-facing product narrative will not be subs
 
 HORIZON is public while its contribution, security, developer, and evidence practices become reliable. The project is preparing for a community that values useful agents, inclusive interfaces, hardware honesty, security review, and contributors who can build on stable contracts rather than reverse-engineered assumptions.
 
-Contributors will eventually be able to create agents for translation, vision, accessibility, meetings, assist, security, and other community needs. Public launch is not a marketing deadline: it is a gate that requires green CI, an active security baseline, truthful documentation, real end-to-end speech translation, a contract-compatible Halo simulator, a polished state-driven UI, usable documentation, and explicit disclosure that physical Halo behavior is not `MEASURED` until physically validated.
+Contributors can use the public repository to explore and extend agents for translation, vision, accessibility, meetings, assist, security, and other community needs as their contracts stabilize. Public availability is not evidence of hardware readiness: green CI, an active security baseline, truthful documentation, end-to-end speech translation, a contract-compatible Halo simulator, a polished state-driven UI, usable documentation, and explicit disclosure that physical Halo behavior is not `MEASURED` until physically validated remain release gates.
 
 ## Contributing and security
 
