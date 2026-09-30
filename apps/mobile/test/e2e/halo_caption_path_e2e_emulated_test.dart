@@ -140,6 +140,9 @@ Future<int> _litPixels(EmulatorHaloTransport transport) async {
 }
 
 final class _Stt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<TranscriptSegment> controller =
       StreamController<TranscriptSegment>.broadcast();
   @override
@@ -163,6 +166,9 @@ final class _Stt implements StreamingSttProvider {
 }
 
 final class _Translator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   @override
   String get providerId => 'path-translator';
   @override
@@ -188,6 +194,9 @@ final class _Translator implements TextTranslationProvider {
 }
 
 final class _Tts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   @override
   String get providerId => 'path-tts';
   @override

@@ -8,6 +8,10 @@ import 'android_live_translation_bridge.dart';
 /// On-device Android ML Kit implementation of [TextTranslationProvider].
 /// Downloading an offline model is denied unless the session consent permits it.
 final class MlKitOnDeviceTranslatorProvider implements TextTranslationProvider {
+  /// On-device ML Kit model; translation never calls a service.
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   MlKitOnDeviceTranslatorProvider({
     AndroidLiveTranslationBridge? bridge,
     DateTime Function()? clock,

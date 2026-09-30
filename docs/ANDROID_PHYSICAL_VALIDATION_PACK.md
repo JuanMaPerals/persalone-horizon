@@ -55,6 +55,17 @@ Privacy: the recorder writes only the redacted `horizon.runtime-event.v1`
 stream (no audio, transcript or translation text) and a sidecar that accepts
 only booleans, integers and short coded tokens.
 
+### Processing stays on the phone
+
+Every provider declares where it processes session content
+(`ProcessingLocation`), and the runtime refuses a session whose providers
+would process it off the device without remote-processing consent (the app
+never grants it). STT uses the on-device recognizer and ML Kit translates
+on-device. Android TTS only uses an installed voice that does not need the
+network; if the phone has none for the target language, speech is refused
+with `tts_network_voice_refused`: install an offline voice (Android settings,
+text-to-speech, the engine's voice data) and retry.
+
 ## 0. Requirements
 
 - Android 13+ (API 33; the on-device PFD recognizer needs it) with on-device

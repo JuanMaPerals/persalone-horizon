@@ -377,6 +377,9 @@ final class _Input implements AudioInputAdapter {
 }
 
 final class _Stt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<TranscriptSegment> controller =
       StreamController<TranscriptSegment>.broadcast();
   LiveTranslationConfig? lastConfig;
@@ -404,6 +407,9 @@ final class _Stt implements StreamingSttProvider {
 }
 
 final class _Translator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final Map<int, String> outputs = <int, String>{};
   final Map<int, Completer<void>> gates = <int, Completer<void>>{};
   int started = 0;
@@ -437,6 +443,9 @@ final class _Translator implements TextTranslationProvider {
 }
 
 final class _Tts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final List<TranslationSegment> spoken = <TranslationSegment>[];
   Completer<void>? speakGate;
   bool throwOnStop = false;

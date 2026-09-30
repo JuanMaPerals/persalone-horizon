@@ -515,6 +515,9 @@ final class _SimInput implements AudioInputAdapter {
 }
 
 final class _SimStt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final StreamController<TranscriptSegment> transcripts$ =
       StreamController<TranscriptSegment>.broadcast();
   bool failPush = false;
@@ -543,6 +546,9 @@ final class _SimStt implements StreamingSttProvider {
 }
 
 final class _SimTranslator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final Map<int, String> outputs = <int, String>{};
   final Map<int, Completer<void>> gates = <int, Completer<void>>{};
   @override
@@ -573,6 +579,9 @@ final class _SimTranslator implements TextTranslationProvider {
 }
 
 final class _SimTts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final List<TranslationSegment> spoken = <TranslationSegment>[];
   @override
   String get providerId => 'sim-tts';

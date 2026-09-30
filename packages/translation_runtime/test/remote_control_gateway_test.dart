@@ -382,6 +382,9 @@ final class _Input implements AudioInputAdapter {
 
 final class _Stt implements StreamingSttProvider {
   @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
+  @override
   String get providerId => 'gw-stt';
   @override
   String get sourceRevision => 'test';
@@ -403,6 +406,9 @@ final class _Stt implements StreamingSttProvider {
 
 final class _Translator implements TextTranslationProvider {
   @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
+  @override
   String get providerId => 'gw-translator';
   @override
   String get sourceRevision => 'test';
@@ -420,6 +426,9 @@ final class _Translator implements TextTranslationProvider {
 }
 
 final class _Tts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   @override
   String get providerId => 'gw-tts';
   @override
