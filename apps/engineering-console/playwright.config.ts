@@ -26,6 +26,13 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
+      // Real phone-side control server (test-only port and fixed token).
+      command: 'dart run ../../packages/translation_runtime/tool/remote_control_e2e_fixture.dart --port 47821 --probe-port 47822 --allow-origin http://127.0.0.1:5174 --token studio-e2e-control-token',
+      url: 'http://127.0.0.1:47822/commands',
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
       command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174 --strictPort',
       url: 'http://127.0.0.1:5174',
       reuseExistingServer: false,
