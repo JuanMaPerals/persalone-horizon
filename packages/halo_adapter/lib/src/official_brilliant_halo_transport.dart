@@ -14,7 +14,38 @@ import 'halo_audio_transport.dart';
 /// surface. The device-side USERDATA application protocol is not enabled here
 /// because no reviewed Halo Lua application has been deployed.
 final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTransport {
-  OfficialBrilliantHaloTransport();
+  /// The optional functions are test seams over the SDK's static and
+  /// platform-bound calls; production uses the SDK directly.
+  OfficialBrilliantHaloTransport({
+    Stream<BrilliantDevice> Function(BrilliantDevice device)? connectionStates,
+    Future<BrilliantDevice> Function(String reconnectId)? reconnector,
+    Future<String?> Function(
+            BrilliantDevice device, String command, Duration timeout)?
+        luaSender,
+    Future<void> Function(BrilliantDevice device)? disconnector,
+  })  : _connectionStates = connectionStates ?? _sdkConnectionStates,
+        _reconnector = reconnector ?? BrilliantBluetooth.reconnect,
+        _luaSender = luaSender ?? _sdkSendLua,
+        _disconnector = disconnector ?? _sdkDisconnect;
+
+  final Stream<BrilliantDevice> Function(BrilliantDevice device)
+      _connectionStates;
+  final Future<BrilliantDevice> Function(String reconnectId) _reconnector;
+  final Future<String?> Function(
+      BrilliantDevice device, String command, Duration timeout) _luaSender;
+  final Future<void> Function(BrilliantDevice device) _disconnector;
+
+  static Stream<BrilliantDevice> _sdkConnectionStates(BrilliantDevice device) =>
+      device.connectionState;
+
+  // log: false keeps caption text (runtime data plane) out of SDK logs.
+  static Future<String?> _sdkSendLua(
+          BrilliantDevice device, String command, Duration timeout) =>
+      device.sendString(command,
+          awaitResponse: true, log: false, timeout: timeout);
+
+  static Future<void> _sdkDisconnect(BrilliantDevice device) =>
+      device.disconnect();
 
   @override
   ExecutionEnvironment get environment => ExecutionEnvironment.haloReal;
@@ -98,18 +129,21 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
 
   @override
   Future<HaloTransportConnection> reconnect(String reconnectId) async {
-    final BrilliantDevice device = await BrilliantBluetooth.reconnect(reconnectId);
+    final BrilliantDevice device = await _reconnector(reconnectId);
     return _adopt(device);
   }
 
   Future<HaloTransportConnection> _adopt(BrilliantDevice device) async {
     await _connectionSubscription?.cancel();
     _device = device;
-    _connectionSubscription = device.connectionState.listen(
+    final String uuid = device.uuid;
+    _connectionSubscription = _connectionStates(device).listen(
       (BrilliantDevice update) {
-        _linkStates.add(update.state == BrilliantConnectionState.connected);
+        // The SDK stream carries every BLE device's events; only this Halo's
+        // count.
+        if (update.uuid == uuid) _onConnectionUpdate(update);
       },
-      onError: (_, __) => _linkStates.add(false),
+      onError: (Object _, StackTrace __) => _failClosed(),
     );
 
     final bool hasLuaService = device.txChannel != null && device.rxChannel != null;
@@ -125,6 +159,47 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
       hasLuaService: hasLuaService,
       hasAudioOutput: hasAudioOutput,
     );
+  }
+
+  /// The SDK emits a NEW [BrilliantDevice] on every change: a disconnected
+  /// one when the link is lost, and after a reconnection one built by
+  /// `enableServices()` with freshly discovered GATT characteristics. The
+  /// transport always adopts the newest one; an earlier instance (whose
+  /// `state` field still reads connected, and whose characteristics are
+  /// stale) must never be used again, or the transport reports a false READY.
+  void _onConnectionUpdate(BrilliantDevice update) {
+    if (update.state == BrilliantConnectionState.connected) {
+      if (update.type != BrilliantDeviceType.halo ||
+          update.txChannel == null ||
+          update.rxChannel == null) {
+        _failClosed();
+        return;
+      }
+      _device = update;
+      _addLinkState(true);
+      return;
+    }
+    // Audio decoding was attached to the lost link's notifications.
+    _detachAudio();
+    _device = update;
+    _addLinkState(false);
+  }
+
+  /// A broken state stream or an unusable device: nothing is ready until an
+  /// explicit reconnect adopts a new instance.
+  void _failClosed() {
+    _detachAudio();
+    _device = null;
+    _addLinkState(false);
+  }
+
+  void _detachAudio() {
+    _rxAudio?.detach();
+    _rxAudio = null;
+  }
+
+  void _addLinkState(bool connected) {
+    if (!_linkStates.isClosed) _linkStates.add(connected);
   }
 
   BrilliantDevice get _readyDevice {
@@ -152,12 +227,8 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
     if (!_isApprovedReadOnlyCommand(command)) {
       throw StateError('Lua command is outside the G2 allow-list.');
     }
-    final String? response = await _readyDevice.sendString(
-      command,
-      awaitResponse: true,
-      log: false,
-      timeout: const Duration(seconds: 3),
-    );
+    final String? response =
+        await _luaSender(_readyDevice, command, const Duration(seconds: 3));
     if (response == null) {
       throw StateError('Halo returned no Lua response.');
     }
@@ -169,13 +240,8 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
     if (!HaloBoundedDisplay.isAcceptable(command.lua)) {
       throw StateError('Display command is outside the bounded grammar.');
     }
-    // log: false keeps caption text (runtime data plane) out of SDK logs.
-    final String? response = await _readyDevice.sendString(
-      command.lua,
-      awaitResponse: true,
-      log: false,
-      timeout: const Duration(seconds: 2),
-    );
+    final String? response = await _luaSender(
+        _readyDevice, command.lua, const Duration(seconds: 2));
     if (response == null || _lastLine(response) != '1') {
       throw StateError('Halo did not acknowledge the display command.');
     }
@@ -265,9 +331,9 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
     final BrilliantDevice? device = _device;
     _device = null;
     if (device != null) {
-      await device.disconnect();
+      await _disconnector(device);
     }
-    _linkStates.add(false);
+    _addLinkState(false);
   }
 
   @override

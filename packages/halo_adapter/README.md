@@ -4,7 +4,7 @@ This package implements the G2 **prepared** adapter boundary for Halo. It encaps
 
 ## Implemented boundary
 
-The physical adapter uses the official SDK revision `9a4cacf7d395195fad338bdb971b2c1ebf484180` and is prepared to discover, select, connect, reconnect, observe link state, query redacted identity, query battery, expose an allow-listed Lua surface, and submit a validated USERDATA datagram. The matching firmware reference is `78bb15368f78ffe94b1b77b5f592ebe7a3f001a3`.
+The physical adapter uses the official SDK revision `462dff4795cffb85248ab1d2f92d4f319adb03d3` and is prepared to discover, select, connect, reconnect, observe link state, query redacted identity, query battery, expose an allow-listed Lua surface, and submit a validated USERDATA datagram. The matching firmware reference is `78bb15368f78ffe94b1b77b5f592ebe7a3f001a3`.
 
 `ready` is emitted only after the required Halo Lua transport has been discovered. A scan result, a reconnect identifier, an SDK acknowledgement, or a fixture response does not prove a physical connection, human-visible display, audible output, or measured behavior.
 
