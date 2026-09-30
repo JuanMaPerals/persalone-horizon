@@ -333,6 +333,9 @@ class MainActivity : FlutterActivity() {
                 "aecAvailable" to echoCancelerAvailable,
                 "aecEnabled" to (echoCanceler?.enabled == true),
                 "nsAvailable" to NoiseSuppressor.isAvailable(),
+                "deviceClass" to ValidationSupport.deviceClass(
+                    Build.FINGERPRINT, Build.HARDWARE, Build.PRODUCT, Build.MODEL,
+                ),
                 "sampleRateHz" to sampleRateHz,
                 "bufferBytes" to bufferBytes,
                 "chunkBytes" to chunkBytes,
