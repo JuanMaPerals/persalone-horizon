@@ -43,6 +43,10 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
   static const int _startPlaybackMsg = 0x40;
   static const int _stopPlaybackMsg = 0x41;
 
+  /// Bound for every audio and USERDATA message, like the Lua (3 s) and
+  /// display (2 s) calls: a silent device must not stall its caller.
+  static const Duration _messageTimeout = Duration(seconds: 2);
+
   @override
   Stream<HaloTransportDiscovery> get discoveries => _discoveries.stream;
 
@@ -197,10 +201,9 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
         'must start with the Halo USERDATA marker 0x01',
       );
     }
-    await _readyDevice.sendDataRaw(
-      Uint8List.fromList(payload),
-      awaitBtResponse: true,
-    );
+    await _readyDevice
+        .sendDataRaw(Uint8List.fromList(payload), awaitBtResponse: true)
+        .timeout(_messageTimeout);
   }
 
   @override
@@ -215,45 +218,49 @@ final class OfficialBrilliantHaloTransport implements HaloTransport, HaloAudioTr
     bool echoCancellation = true,
     bool voiceMode = true,
   }) async {
-    await _readyDevice.sendMessage(
-      _startListeningMsg,
-      Uint8List.fromList(<int>[
-        gain.clamp(0, 20),
-        echoCancellation ? 1 : 0,
-        voiceMode ? 1 : 0,
-      ]),
-    );
+    await _readyDevice
+        .sendMessage(
+          _startListeningMsg,
+          Uint8List.fromList(<int>[
+            gain.clamp(0, 20),
+            echoCancellation ? 1 : 0,
+            voiceMode ? 1 : 0,
+          ]),
+        )
+        .timeout(_messageTimeout);
   }
 
   @override
   Future<void> stopMicrophone() async {
-    await _readyDevice.sendMessage(
-      _stopListeningMsg,
-      Uint8List.fromList(<int>[0]),
-    );
-    _rxAudio?.detach();
-    _rxAudio = null;
+    try {
+      await _readyDevice
+          .sendMessage(_stopListeningMsg, Uint8List.fromList(<int>[0]))
+          .timeout(_messageTimeout);
+    } finally {
+      // Stop listening locally even if the device did not answer.
+      _rxAudio?.detach();
+      _rxAudio = null;
+    }
   }
 
   @override
   Future<void> startSpeaker({int volume = 100}) async {
-    await _readyDevice.sendMessage(
-      _startPlaybackMsg,
-      Uint8List.fromList(<int>[volume.clamp(0, 100)]),
-    );
+    await _readyDevice
+        .sendMessage(
+            _startPlaybackMsg, Uint8List.fromList(<int>[volume.clamp(0, 100)]))
+        .timeout(_messageTimeout);
   }
 
   @override
   Future<void> sendEncodedSpeakerAudio(Uint8List lc3Frame) async {
-    await _readyDevice.sendAudio(lc3Frame);
+    await _readyDevice.sendAudio(lc3Frame).timeout(_messageTimeout);
   }
 
   @override
   Future<void> stopSpeaker() async {
-    await _readyDevice.sendMessage(
-      _stopPlaybackMsg,
-      Uint8List.fromList(<int>[0]),
-    );
+    await _readyDevice
+        .sendMessage(_stopPlaybackMsg, Uint8List.fromList(<int>[0]))
+        .timeout(_messageTimeout);
   }
 
   @override

@@ -25,6 +25,7 @@ Loop under test: **mic → STT → translation → TTS → (speaker) → mic**.
 | Self-echo suspicion | runtime `selfEchoSuspected` diagnostic (`duringTts` / `afterTts`, `.textOverlap`) | `speech_boundary_test`, validation golden |
 | Redacted logging | `ValidationRecorder` (redacted v1 NDJSON + coded sidecar) | `validation_recorder_test` |
 | Offline analysis | Engineering Console → "load an offline .ndjson file" | Console tests on runtime-produced goldens |
+| Bounded runtime: no provider call can stall a session, Stop or Panic (`deadlineExceeded` diagnostic, `cleanupFailed` lists what did not stop in time) | `RuntimeDeadlines` in `HorizonTranslationRuntime` | `runtime_deadlines_test` (every deadline mutation-checked), `control_e2e_emulated_test` (hung TTS, HUD still black) |
 | Observable speech output (`speechQueuedToAudible`, `speechEndToAudible`) | `MeasuredTtsOutput` + `TtsPresentation` → provider `presentations` → runtime latency | `TtsPresentationTest` (JVM, CI), provider tests, `turn_latency_test`, Console `latency.test.ts` |
 
 ### What "audible" means here
@@ -247,7 +248,7 @@ grep -c '"code":"speechEnded"' variant-A.ndjson
 | End-of-speech measured | `speechEnded` count ≥ phrases spoken, `speechEndToFinal` samples ≥ 20 over both runs |
 | No self-echo (loop and echo check) | during the 5 s silences: no extra `transcriptFinal`, `selfEchoSuspected` = 0 |
 | Barge-in | the spoken translation stops when the person speaks; the new turn is translated |
-| Stop / Panic | TTS stops, no further turn is spoken |
+| Stop / Panic | TTS stops, no further turn is spoken; any `deadlineExceeded` in the log names the component that did not answer |
 | Redaction | `grep -ciE 'station\|pharmacy\|flight\|tomorrow\|estacion\|farmacia\|vuelo\|manana' variant-*.ndjson variant-*.meta.json` prints 0 for every file |
 
 ## 7. ECHO_RISK decision (A/B)
