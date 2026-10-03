@@ -185,6 +185,30 @@ void main() {
     await allowed.detachSocket().then((Socket s) => s.destroy());
   });
 
+  test('metrics expose aggregate runtime state without session data', () async {
+    server = await startServer();
+    events.add(state(RuntimeSessionState.preparing));
+    events.add(state(RuntimeSessionState.failed));
+
+    final HttpClient http = HttpClient();
+    addTearDown(() => http.close(force: true));
+    final Uri metrics =
+        server.uri.replace(path: RuntimeEventServer.metricsPath);
+    final HttpClientResponse response =
+        await (await http.getUrl(metrics)).close();
+    final String body = await utf8.decoder.bind(response).join();
+
+    expect(response.statusCode, HttpStatus.ok);
+    expect(body, contains('horizon_runtime_events_total 2'));
+    expect(body, contains('horizon_runtime_failures_total 1'));
+    expect(body, contains('horizon_runtime_stream_clients 0'));
+    expect(body, isNot(contains('live-session')));
+
+    final HttpClientResponse denied =
+        await (await http.postUrl(metrics)).close();
+    expect(denied.statusCode, HttpStatus.methodNotAllowed);
+  });
+
   test('limits concurrent clients', () async {
     server = await startServer(maxClients: 1);
     final _Sse first = await _Sse.connect(server.uri);
