@@ -6,12 +6,9 @@ import {
   MIN_SAMPLES_P95,
   parseRuntimeEventStream,
   reduceRuntimeEvents,
-  runtimeControlAvailability,
-  type RuntimeControl,
   type RuntimeView,
 } from '../runtime/runtimeEvents';
-
-const controls: readonly RuntimeControl[] = ['start', 'stop', 'panic'];
+import { RemoteControlPanel } from './RemoteControlPanel';
 
 const ms = (value: number | string): string => (typeof value === 'number' ? `${(value / 1000).toFixed(1)} ms` : value);
 const defaultUrl = 'http://127.0.0.1:47800/v1/runtime-events';
@@ -106,12 +103,6 @@ export function RuntimeStatePanel(): ReactElement {
         })}
       </tbody>
     </table>
-    <div className="runtime-controls">
-      {controls.map((control) => {
-        const availability = runtimeControlAvailability(control);
-        return <button key={control} type="button" disabled={!availability.enabled} title={availability.reason}>{control.toUpperCase()}</button>;
-      })}
-      <small>{runtimeControlAvailability('start').reason}</small>
-    </div>
+    <RemoteControlPanel />
   </section>;
 }
