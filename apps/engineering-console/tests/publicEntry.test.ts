@@ -4,12 +4,15 @@ import { describe, expect, it } from 'vitest';
 import App from '../src/App';
 
 describe('public HORIZON entrypoint', () => {
-  it('opens the canonical Studio directly instead of the legacy Engineering Console workspace', () => {
+  it('opens the HORIZON product home instead of the Engineering Console', () => {
     const html = renderToStaticMarkup(createElement(App));
-    expect(html).toContain('HORIZON workspaces');
-    expect(html).toContain('Mission Control');
-    expect(html).toContain('Hello Halo');
-    expect(html).not.toContain('Engineering Console V2');
-    expect(html).not.toContain('dockview-host');
+    expect(html).toContain('HORIZON navigation');
+    expect(html).toContain('What do you want to do?');
+    expect(html).toContain('My Halo');
+    expect(html).toContain('Translate');
+    expect(html).toContain('Privacy controls');
+    expect(html).not.toContain('Mission Control');
+    expect(html).not.toContain('PUBLIC CONSOLE');
+    expect(html).not.toContain('Observability');
   });
 });
