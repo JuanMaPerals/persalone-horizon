@@ -7,14 +7,16 @@ test('HORIZON product home navigates user capabilities', async ({ page }) => {
   await expect(page.getByText('Mission Control')).toHaveCount(0);
   await expect(page.getByText('PUBLIC CONSOLE')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'My Halo', exact: true }).first().click();
+  await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('My Halo').click();
   await expect(page.getByRole('heading', { name: 'My Halo' })).toBeVisible();
+  await expect(page.getByText('Physical Halo not observed')).toBeVisible();
+  await page.getByText('Developer emulator tools', { exact: true }).click();
   await expect(page.getByRole('region', { name: 'Hello Halo', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '‹ Home' }).click();
-  await page.getByRole('button', { name: /Translate/ }).first().click();
-  await expect(page.getByRole('heading', { name: 'Translate' })).toBeVisible();
-  await expect(page.getByText('Software path ready')).toBeVisible();
+  await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('Translate').click();
+  await expect(page.getByRole('heading', { name: /Translate conversations/ })).toBeVisible();
+  await expect(page.locator('.translate-product')).toBeVisible();
 
   await page.getByRole('button', { name: '‹ Home' }).click();
   await page.getByRole('button', { name: 'Privacy controls' }).click();
