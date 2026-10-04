@@ -13,6 +13,8 @@ describe('public HORIZON entrypoint', () => {
     expect(html).toContain('Privacy controls');
     expect(html).not.toContain('Mission Control');
     expect(html).not.toContain('PUBLIC CONSOLE');
-    expect(html).not.toContain('Observability');
+    expect(html).not.toContain('Mission Control navigates');
+    expect(html).toContain('HALO · NOT OBSERVED');
+    expect(html).toContain('Physical device not observed');
   });
 });

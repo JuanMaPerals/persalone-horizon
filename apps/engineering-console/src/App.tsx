@@ -15,7 +15,7 @@ const panels: Array<{id: Panel; label: string; glyph: string}> = [
 ];
 
 const capabilities: Array<{id: Panel; title: string; description: string; state: string; tone: string}> = [
-  { id: 'translate', title: 'Translate', description: 'Live speech, captions and translation through your Halo.', state: 'Software path ready', tone: 'ready' },
+  { id: 'translate', title: 'Translate', description: 'Live speech, captions and translation pipeline.', state: 'Software path verified', tone: 'ready' },
   { id: 'accessibility', title: 'Accessibility', description: 'Contextual assistance designed around what you need now.', state: 'Not connected yet', tone: 'quiet' },
   { id: 'meetings', title: 'Meetings', description: 'Follow conversations and keep useful context within your control.', state: 'Not connected yet', tone: 'quiet' },
   { id: 'vision', title: 'Vision', description: 'Understand what is in front of you with explicit permission.', state: 'Not connected yet', tone: 'quiet' },
@@ -32,7 +32,7 @@ function Home({open}: {open: (panel: Panel) => void}): ReactElement {
       </div>
       <button className="halo-status-card" type="button" onClick={() => open('device')}>
         <span className="halo-orbit"><i /></span>
-        <span><strong>My Halo</strong><small>Physical device not connected</small></span>
+        <span><strong>My Halo</strong><small>Physical device not observed</small></span>
         <b>›</b>
       </button>
     </section>
@@ -72,7 +72,7 @@ export default function App(): ReactElement {
       <div className="sidebar-foot"><span className="privacy-dot" /><small>Private</small></div>
     </aside>
     <section className="product-content">
-      <header className="product-topbar"><div><strong>PersalOne HORIZON</strong><small>Contextual computing</small></div><span className="truth-chip">HALO · NOT CONNECTED</span></header>
+      <header className="product-topbar"><div><strong>PersalOne HORIZON</strong><small>Contextual computing</small></div><span className="truth-chip">HALO · NOT OBSERVED</span></header>
       {panel === 'home' ? <Home open={setPanel} /> : <CapabilityPanel panel={panel} back={() => setPanel('home')} />}
     </section>
   </main>;
