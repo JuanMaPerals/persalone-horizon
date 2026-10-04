@@ -34,6 +34,7 @@ final class RuntimeEventServer {
   );
 
   static const String path = '/v1/runtime-events';
+  static const String metricsPath = '/metrics';
 
   final HttpServer _server;
   final String streamId;
@@ -47,6 +48,9 @@ final class RuntimeEventServer {
   Timer? _heartbeat;
   bool _truncated = false;
   int _lastSeq = 0;
+  int _runtimeEventsTotal = 0;
+  int _runtimeFailuresTotal = 0;
+  int _runtimeDiagnosticsTotal = 0;
 
   static Future<RuntimeEventServer> start(
     Stream<RuntimeEvent> events, {
@@ -97,6 +101,9 @@ final class RuntimeEventServer {
   void _run(Stream<RuntimeEvent> events, Duration heartbeat) {
     _eventsSubscription = events.listen((RuntimeEvent event) {
       _lastSeq = event.streamSequence;
+      _runtimeEventsTotal++;
+      if (event.kind == RuntimeEventKind.sessionState && event.sessionState == RuntimeSessionState.failed) _runtimeFailuresTotal++;
+      if (event.kind == RuntimeEventKind.diagnostic) _runtimeDiagnosticsTotal++;
       final String frame = 'id: $streamId:${event.streamSequence}\n'
           'event: runtime\n'
           'data: ${RuntimeEventStream.encodeLine(event)}\n\n';
@@ -127,6 +134,10 @@ final class RuntimeEventServer {
     response.headers
       ..set('cache-control', 'no-store')
       ..set('x-content-type-options', 'nosniff');
+    if (request.uri.path == metricsPath) {
+      await _handleMetrics(request);
+      return;
+    }
     if (request.uri.path != path) {
       response.statusCode = HttpStatus.notFound;
       await response.close();
@@ -197,6 +208,31 @@ final class RuntimeEventServer {
     } on Object {
       await client.close();
     }
+  }
+
+  Future<void> _handleMetrics(HttpRequest request) async {
+    final HttpResponse response = request.response;
+    if (request.method != 'GET') {
+      response
+        ..statusCode = HttpStatus.methodNotAllowed
+        ..headers.set('allow', 'GET');
+      await response.close();
+      return;
+    }
+    response.headers.contentType =
+        ContentType('text', 'plain', charset: 'utf-8');
+    response.write(
+        '# TYPE horizon_runtime_events_total counter\n'
+        'horizon_runtime_events_total $_runtimeEventsTotal\n'
+        '# TYPE horizon_runtime_failures_total counter\n'
+        'horizon_runtime_failures_total $_runtimeFailuresTotal\n'
+        '# TYPE horizon_runtime_diagnostics_total counter\n'
+        'horizon_runtime_diagnostics_total $_runtimeDiagnosticsTotal\n'
+        '# TYPE horizon_runtime_stream_clients gauge\n'
+        'horizon_runtime_stream_clients ${_clients.length}\n'
+        '# TYPE horizon_runtime_last_sequence gauge\n'
+        'horizon_runtime_last_sequence $_lastSeq\n');
+    await response.close();
   }
 
   static (String, int)? _parseLastEventId(String? value) {
