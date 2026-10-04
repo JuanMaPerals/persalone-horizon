@@ -19,7 +19,6 @@ async function shot(page: Page, name: string, heading: string) {
 test('Hello Halo: pair, create, edit, run, button, test, export (en)', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('persalone.studio.locale', 'en'));
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open Studio', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Hello Halo', exact: true });
 
   // Pair with the Companion.
@@ -93,7 +92,6 @@ test('Hello Halo: pair, create, edit, run, button, test, export (en)', async ({ 
 test('Spanish UI and PANIC', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('persalone.studio.locale', 'es'));
   await page.goto('/');
-  await page.getByRole('button', { name: 'Open Studio', exact: true }).click();
   const panel = page.getByRole('region', { name: 'Hello Halo', exact: true });
   await panel.getByLabel('URL del Companion (loopback)').fill('http://127.0.0.1:47811');
   await panel.getByLabel('Token de emparejamiento').fill('studio-e2e-token');
