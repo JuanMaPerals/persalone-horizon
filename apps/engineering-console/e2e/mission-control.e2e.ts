@@ -10,7 +10,7 @@ test('HORIZON product home navigates user capabilities', async ({ page }) => {
   await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('My Halo').click();
   await expect(page.getByRole('heading', { name: 'My Halo' })).toBeVisible();
   await expect(page.getByText('Physical Halo not observed')).toBeVisible();
-  await page.getByText('Developer emulator tools', { exact: true }).click();
+  await expect(page.getByText('Developer emulator tools', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Hello Halo', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '‹ Home' }).click();
