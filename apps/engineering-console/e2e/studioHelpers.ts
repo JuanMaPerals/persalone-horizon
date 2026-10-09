@@ -10,7 +10,7 @@ export const longCaption =
 export async function openStudio(page: Page, hash = '') {
   await page.addInitScript(() => window.localStorage.setItem('persalone.studio.locale', 'en'));
   await page.goto(`/${hash}`);
-  await page.getByRole('button', { name: 'Open Studio', exact: true }).click();
+  await page.getByRole('button', { name: 'My Halo', exact: true }).first().click();
   const panel = page.getByRole('region', { name: 'Hello Halo', exact: true });
   await panel.getByLabel('Companion URL (loopback)').fill('http://127.0.0.1:47811');
   await panel.getByLabel('Pairing token').fill('studio-e2e-token');
