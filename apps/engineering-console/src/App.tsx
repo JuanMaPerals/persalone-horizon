@@ -72,7 +72,7 @@ export default function App(): ReactElement {
   return <main className="product-shell">
     <aside className="product-sidebar">
       <button className="product-brand" type="button" onClick={() => setPanel('home')} aria-label="HORIZON Home"><span>H</span><strong>HORIZON</strong></button>
-      <nav aria-label="HORIZON navigation">{panels.map(item => <button key={item.id} type="button" aria-label={item.label} className={panel === item.id ? 'active' : ''} onClick={() => setPanel(item.id)} title={item.label}><span>{item.glyph}</span><small>{item.label}</small></button>)}</nav>
+      <nav aria-label="HORIZON navigation">{panels.map(item => <button key={item.id} type="button" aria-label={item.label} className={panel === item.id ? 'active' : ''} onClick={() => setPanel(item.id)} title={item.label}><span aria-hidden="true">{item.glyph}</span><small>{item.label}</small></button>)}</nav>
       <div className="sidebar-foot"><span className="privacy-dot" /><small>Private</small></div>
     </aside>
     <section className="product-content">

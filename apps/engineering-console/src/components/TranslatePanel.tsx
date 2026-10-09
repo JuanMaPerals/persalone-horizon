@@ -1,14 +1,13 @@
 import { type ReactElement, useEffect, useRef, useState } from 'react';
 import { RuntimeStreamClient, type LiveSnapshot } from '../runtime/liveStream';
-
-const runtimeEventsUrl = 'http://127.0.0.1:47800/v1/runtime-events';
+import { runtimeEventsUrl } from '../runtime/runtimeEndpoint';
 
 export function TranslatePanel(): ReactElement {
   const [live, setLive] = useState<LiveSnapshot | null>(null);
   const clientRef = useRef<RuntimeStreamClient | null>(null);
 
   useEffect(() => {
-    const client = new RuntimeStreamClient({ url: runtimeEventsUrl, onChange: setLive });
+    const client = new RuntimeStreamClient({ url: runtimeEventsUrl(), onChange: setLive });
     clientRef.current = client;
     client.start();
     return () => client.stop();
@@ -16,11 +15,13 @@ export function TranslatePanel(): ReactElement {
 
   const connected = live?.connection === 'LIVE';
   const view = live?.view;
-  const runtimeState = connected ? view?.sessionState ?? 'UNKNOWN' : 'UNKNOWN';
-  const environment = connected ? view?.captionEnvironment ?? 'UNKNOWN' : 'UNKNOWN';
-  const evidence = connected ? view?.captionTruth ?? 'UNKNOWN' : 'UNKNOWN';
-  const device = connected ? view?.deviceState ?? 'UNKNOWN' : 'UNKNOWN';
-  const delivered = connected ? view?.captions.delivered ?? 0 : 'UNKNOWN';
+  const degraded = connected && view?.degraded === true;
+  const trustworthy = connected && !degraded;
+  const runtimeState = trustworthy ? view?.sessionState ?? 'UNKNOWN' : 'UNKNOWN';
+  const environment = trustworthy ? view?.captionEnvironment ?? 'UNKNOWN' : 'UNKNOWN';
+  const evidence = trustworthy ? view?.captionTruth ?? 'UNKNOWN' : 'UNKNOWN';
+  const device = trustworthy ? view?.deviceState ?? 'UNKNOWN' : 'UNKNOWN';
+  const delivered: string | number = degraded ? 'PARTIAL' : trustworthy ? view?.captions.delivered ?? 0 : 'UNKNOWN';
 
   return <section className="translate-product" aria-label="Translate">
     <div className="translate-hero">
@@ -29,10 +30,10 @@ export function TranslatePanel(): ReactElement {
         <h1>Translate conversations.<br />Keep the context yours.</h1>
         <p>The translation pipeline runs through the local HORIZON runtime. Starting a microphone session requires explicit consent on the local device.</p>
       </div>
-      <div className={connected ? 'runtime-orb live' : 'runtime-orb'}>
+      <div className={connected && !degraded ? 'runtime-orb live' : degraded ? 'runtime-orb degraded' : 'runtime-orb'}>
         <span />
-        <strong>{connected ? 'Runtime live' : 'Runtime unavailable'}</strong>
-        <small>{connected ? 'Read-only evidence connected' : 'No live state is inferred'}</small>
+        <strong>{degraded ? 'Runtime degraded' : connected ? 'Runtime live' : 'Runtime unavailable'}</strong>
+        <small>{degraded ? 'Evidence is incomplete; affected values fail closed' : connected ? 'Read-only evidence connected' : 'No live state is inferred'}</small>
       </div>
     </div>
 
