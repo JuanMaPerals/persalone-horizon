@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -10,10 +11,17 @@ import 'package:persalone_translation_runtime/persalone_translation_runtime.dart
 
 import 'ble_permission_gate.dart';
 import 'halo_caption_path.dart';
+import 'full_device_remote_control.dart';
 import 'live_stream_config.dart';
+import 'studio_remote_control.dart';
 
 void main() {
   runApp(const PersalOneApp());
+}
+
+String _newTargetId() {
+  final Random random = Random.secure();
+  return List<String>.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }
 
 /// Android-first shell. It exposes separate G3/G4 evidence controls and the G5
@@ -66,6 +74,17 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       'HORIZON_STUDIO_ORIGINS',
       defaultValue: LiveStreamConfig.defaultOrigins);
   RuntimeEventServer? _liveServer;
+  final String _targetId = _newTargetId();
+
+  /// Studio STOP/PANIC over the authenticated loopback channel. Off unless a
+  /// build sets `--dart-define=HORIZON_REMOTE_CONTROL=true`.
+  static const bool _remoteControl =
+      bool.fromEnvironment('HORIZON_REMOTE_CONTROL');
+  static const int _remoteControlPort = int.fromEnvironment(
+      'HORIZON_REMOTE_CONTROL_PORT',
+      defaultValue: LiveStreamConfig.defaultControlPort);
+  StudioRemoteControl? _studioControl;
+  String _remoteStatus = 'Control remoto de HORIZON: desactivado.';
 
   /// Captions to a physical Halo over the Brilliant BLE transport. Off unless
   /// a build sets `HORIZON_HALO_CAPTIONS=true`, so runs without a Halo never
@@ -141,6 +160,9 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       );
     }
     _control = widget.control ?? _ownedController!;
+    if (_remoteControl) {
+      unawaited(_serveRemoteControl());
+    }
     _frameSubscription = _microphone.frames.listen(_collectInputFrame);
     _inputDiagnosticSubscription = _microphone.diagnostics.listen(
       _observeInputDiagnostic,
@@ -174,6 +196,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     _captureConfigSubscription?.cancel();
     _ttsOutputSubscription?.cancel();
     _liveServer?.close();
+    _studioControl?.close();
     _haloPath?.dispose();
     _validationRecorder?.close();
     _validationEvents?.close();
@@ -237,6 +260,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         events.events,
         port: config.port,
         allowedOrigins: config.allowedOrigins,
+        streamId: _targetId,
       );
       if (!mounted) {
         await server.close();
@@ -247,6 +271,48 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       debugPrint('HORIZON_LIVE_STREAM ${server.uri}');
     } on Object catch (error) {
       debugPrint('HORIZON_LIVE_STREAM unavailable: ${error.runtimeType}');
+    }
+  }
+
+  /// Loopback only, authenticated, STOP and PANIC only. Only the URL and the
+  /// token file path are logged (for adb), never the token.
+  Future<void> _serveRemoteControl() async {
+    try {
+      final StudioRemoteControl control = await StudioRemoteControl.start(
+        FullDeviceRemoteControlPort(
+          _control,
+          onRemoteStop: _executeStopCommand,
+          onRemotePanic: _executePanicCommand,
+        ),
+        config: LiveStreamConfig.parse(
+            port: _remoteControlPort, origins: _studioOrigins),
+        // On Android the Flutter engine sets Dart's systemTemp to the app's
+        // own code cache (Context.getCodeCacheDir, every Android version), so
+        // the token stays app-private and readable only via `adb run-as`.
+        tokenDirectory:
+            Directory('${Directory.systemTemp.path}/horizon-control'),
+        targetId: _targetId,
+        onLocked: () {
+          debugPrint('HORIZON_REMOTE_CONTROL bad-auth-throttled');
+          if (!mounted) return;
+          setState(() => _remoteStatus = 'Control remoto de HORIZON: intentos '
+              'no autenticados limitados. Una credencial válida sigue habilitada.');
+        },
+      );
+      if (!mounted) {
+        await control.close();
+        return;
+      }
+      _studioControl = control;
+      debugPrint('HORIZON_REMOTE_CONTROL ${control.server.uri} '
+          'token-file ${control.tokenFile.path}');
+      setState(() => _remoteStatus = 'Control remoto de HORIZON: ACTIVO '
+          '(solo STOP y PANIC, loopback + adb, autenticado).');
+    } on Object catch (error) {
+      debugPrint('HORIZON_REMOTE_CONTROL unavailable: ${error.runtimeType}');
+      if (!mounted) return;
+      setState(() => _remoteStatus =
+          'Control remoto de HORIZON: no disponible (${error.runtimeType}).');
     }
   }
 
@@ -414,15 +480,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     });
   }
 
-  Future<void> _stopLiveTranslation() async {
-    final String? sessionId = _control.activeSessionId;
-    if (sessionId != null) {
-      await _control.execute(StopCommand(
-        commandId: _nextCommandId(),
-        origin: ControlOrigin.local,
-        sessionId: sessionId,
-      ));
-    }
+  void _showStoppedState() {
     if (!mounted) return;
     setState(() {
       _liveRunning = false;
@@ -432,6 +490,25 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       _liveStatus =
           'Sesión detenida. Se descartó el estado textual mostrado en memoria.';
     });
+  }
+
+  Future<CommandResult> _executeStopCommand(StopCommand command) async {
+    final CommandResult result = await _control.execute(command);
+    if (result.status == CommandStatus.accepted) _showStoppedState();
+    return result;
+  }
+
+  Future<void> _stopLiveTranslation() async {
+    final String? sessionId = _control.activeSessionId;
+    if (sessionId == null) {
+      _showStoppedState();
+      return;
+    }
+    await _executeStopCommand(StopCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+      sessionId: sessionId,
+    ));
   }
 
   Future<void> _setLanguage(TranslationDirection direction) async {
@@ -449,14 +526,12 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     });
   }
 
-  /// Emergency stop from any state. G5 handles runtime, STT, TTS and HUD;
-  /// the raw G3/G4 host capture and playback live outside G5 and are stopped
-  /// here best-effort. Ephemeral text and audio buffers are always cleared.
-  Future<void> _panic() async {
-    final CommandResult result = await _control.execute(PanicCommand(
-      commandId: _nextCommandId(),
-      origin: ControlOrigin.local,
-    ));
+  /// Emergency stop from any state. Both local and authenticated remote PANIC
+  /// use this exact phone-level path: G5 handles runtime/STT/TTS/HUD, while
+  /// raw G3/G4 host capture/playback are stopped here best-effort. Ephemeral
+  /// text and audio buffers are always cleared.
+  Future<CommandResult> _executePanicCommand(PanicCommand command) async {
+    final CommandResult result = await _control.execute(command);
     final List<String> failed = <String>[...result.failedCleanup];
     Future<void> bestEffort(String name, Future<void> Function() op) async {
       try {
@@ -469,18 +544,37 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     if (_capturing) await bestEffort('hostCapture', _microphone.stop);
     if (_playing) await bestEffort('hostPlayback', _speaker.stop);
     _sample.clear();
-    if (!mounted) return;
-    setState(() {
-      _capturing = false;
-      _playing = false;
-      _liveRunning = false;
-      _partialTranscript = '';
-      _finalTranscript = '';
-      _translation = '';
-      _liveStatus = failed.isEmpty
-          ? 'PANIC ejecutado: micrófono, STT, TTS y HUD detenidos; buffers efímeros vaciados.'
-          : 'PANIC ejecutado con fallos de limpieza en: ${failed.join(', ')}. El resto de acciones de seguridad sí se ejecutaron.';
-    });
+    if (mounted) {
+      setState(() {
+        _capturing = false;
+        _playing = false;
+        _liveRunning = false;
+        _partialTranscript = '';
+        _finalTranscript = '';
+        _translation = '';
+        _liveStatus = failed.isEmpty
+            ? 'PANIC ejecutado: micrófono, STT, TTS y HUD detenidos; buffers efímeros vaciados.'
+            : 'PANIC ejecutado con fallos de limpieza en: ${failed.join(', ')}. El resto de acciones de seguridad sí se ejecutaron.';
+      });
+    }
+    if (failed.length == result.failedCleanup.length) return result;
+    return CommandResult(
+      commandId: result.commandId,
+      kind: result.kind,
+      origin: result.origin,
+      status: result.status,
+      observedAtMicros: result.observedAtMicros,
+      rejection: result.rejection,
+      runtimeError: result.runtimeError,
+      failedCleanup: List<String>.unmodifiable(failed),
+    );
+  }
+
+  Future<void> _panic() async {
+    await _executePanicCommand(PanicCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+    ));
   }
 
   String _describe(CommandResult result) {
@@ -735,6 +829,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
                 _translation.isEmpty ? 'Sin traducción final.' : _translation,
           ),
           Text('Callbacks obsoletos descartados: $_staleCallbacks'),
+          if (_remoteControl) Text(_remoteStatus),
           if (_haloPath != null) ...<Widget>[
             const SizedBox(height: 16),
             _EvidenceCard(title: 'Subtítulos en Halo', value: _haloStatus),

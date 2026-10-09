@@ -4,6 +4,7 @@ import { HelloHaloPanel } from './components/HelloHaloPanel';
 import { TranslatePanel } from './components/TranslatePanel';
 import { MyHaloPanel } from './components/MyHaloPanel';
 import { AccessibilityPanel } from './components/AccessibilityPanel';
+import { SecurityPanel } from './components/SecurityPanel';
 
 type Panel = 'home' | 'device' | 'translate' | 'accessibility' | 'meetings' | 'vision' | 'security' | 'privacy';
 
@@ -23,7 +24,7 @@ const capabilities: Array<{id: Panel; title: string; description: string; state:
   { id: 'accessibility', title: 'Accessibility', description: 'Caption delivery with explicit consent and evidence-bound status.', state: 'Software caption path verified', tone: 'ready' },
   { id: 'meetings', title: 'Meetings', description: 'Follow conversations and keep useful context within your control.', state: 'Not connected yet', tone: 'quiet' },
   { id: 'vision', title: 'Vision', description: 'Understand what is in front of you with explicit permission.', state: 'Not connected yet', tone: 'quiet' },
-  { id: 'security', title: 'Security', description: 'Surface security context without exposing private content.', state: 'Not connected yet', tone: 'quiet' },
+  { id: 'security', title: 'Security', description: 'Redacted safety evidence with authenticated local STOP and PANIC.', state: 'Local control E2E verified', tone: 'ready' },
 ];
 
 function Home({open}: {open: (panel: Panel) => void}): ReactElement {
@@ -64,6 +65,7 @@ function CapabilityPanel({panel, back}: {panel: Panel; back: () => void}): React
   const item = capabilities.find(cap => cap.id === panel);
   if (panel === 'translate') return <div className="product-detail translate-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><TranslatePanel /></div>;
   if (panel === 'accessibility') return <div className="product-detail accessibility-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><AccessibilityPanel /></div>;
+  if (panel === 'security') return <div className="product-detail security-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><SecurityPanel /></div>;
   if (panel === 'device') return <div className="product-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><MyHaloPanel />{import.meta.env.DEV ? <details className="engineering-tools" open><summary>Developer emulator tools</summary><div className="embedded-real-path"><HelloHaloPanel /></div></details> : null}</div>;
   if (panel === 'privacy') return <div className="product-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><div className="detail-heading"><span className="product-eyebrow">PRIVACY & PERMISSIONS</span><h1>You decide what HORIZON can use.</h1><p>Permissions fail closed. Memory is disabled by default and observability uses aggregate evidence only.</p></div><div className="permission-list"><article><div><strong>Memory</strong><small>Persistent contextual memory</small></div><span className="off-pill">OFF</span></article><article><div><strong>Runtime activity</strong><small>Read-only operational events</small></div><span className="read-pill">READ ONLY</span></article><article><div><strong>Observability</strong><small>Aggregate metrics, no transcript content</small></div><span className="read-pill">AGGREGATE</span></article><article><div><strong>Physical Halo</strong><small>Requires hardware-observed evidence</small></div><span className="unknown-pill">UNKNOWN</span></article></div></div>;
   return <div className="product-detail"><button className="back-button" type="button" onClick={back}>‹ Home</button><div className="detail-heading"><span className="product-eyebrow">CAPABILITY</span><h1>{item?.title}</h1><p>{item?.description}</p></div><div className="capability-boundary"><span className="capability-icon large">{panels.find(p => p.id === panel)?.glyph}</span><div><strong>{item?.state}</strong><p>This panel will only expose actions when its real execution path is connected. No simulated success and no dead controls.</p></div></div></div>;

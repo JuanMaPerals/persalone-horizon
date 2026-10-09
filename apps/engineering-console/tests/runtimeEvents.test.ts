@@ -4,7 +4,6 @@ import {
   parseRuntimeEventLine,
   parseRuntimeEventStream,
   reduceRuntimeEvents,
-  runtimeControlAvailability,
   RuntimeEventError,
 } from '../src/runtime/runtimeEvents';
 
@@ -40,6 +39,13 @@ describe('runtime event stream wiring (golden from G5 runtime)', () => {
     const view = reduceRuntimeEvents(parseRuntimeEventStream(golden('runtime-events.failure.v1.ndjson')));
     expect(view.captionEnvironment).toBe('SIMULATED');
     expect(view.captionTruth).toBe('FAILED');
+  });
+
+  it('counts cleanupFailed as a security-relevant runtime error', () => {
+    const line = JSON.stringify({ schema: 'horizon.runtime-event.v1', seq: 1, atMicros: 1, kind: 'diagnostic', session: { id: 's', epoch: 1 }, code: 'cleanupFailed', component: 'microphone', turn: null, detail: null });
+    const view = reduceRuntimeEvents(parseRuntimeEventStream(line));
+    expect(view.errorCount).toBe(1);
+    expect(view.lastError).toEqual({ code: 'cleanupFailed', component: 'microphone', detail: null });
   });
 });
 
@@ -84,15 +90,5 @@ describe('degraded and hostile input', () => {
   it('never reports HALO_REAL unless an event says so', () => {
     const view = reduceRuntimeEvents(parseRuntimeEventStream(JSON.stringify(base)));
     expect(view.captionEnvironment).toBe('EMULATED');
-  });
-});
-
-describe('runtime controls', () => {
-  it('keeps Start, Stop and Panic disabled with an explicit reason', () => {
-    for (const control of ['start', 'stop', 'panic'] as const) {
-      const availability = runtimeControlAvailability(control);
-      expect(availability.enabled).toBe(false);
-      expect(availability.reason).toMatch(/read-only/);
-    }
   });
 });

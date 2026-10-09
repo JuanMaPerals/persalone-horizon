@@ -292,7 +292,7 @@ export interface RuntimeView {
   readonly selfEcho: { readonly suspected: number; readonly withTextOverlap: number };
 }
 
-const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied']);
+const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied', 'cleanupFailed']);
 
 export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
   let sessionId: Known<string> = 'UNKNOWN';
@@ -384,15 +384,5 @@ export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
       speechQueuedToAudible: latencyStat(latencyEvents.speechQueuedToAudible),
       speechEndToAudible: latencyStat(latencyEvents.speechEndToAudible),
     },
-  };
-}
-
-export type RuntimeControl = 'start' | 'stop' | 'panic';
-
-/** Controls stay disabled until an authenticated, bounded control API exists. The event stream is read-only and never carries commands. */
-export function runtimeControlAvailability(_control: RuntimeControl): { readonly enabled: false; readonly reason: string } {
-  return {
-    enabled: false,
-    reason: 'No authenticated control API exists yet; the runtime event stream is read-only.',
   };
 }
