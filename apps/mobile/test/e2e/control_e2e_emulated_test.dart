@@ -165,6 +165,27 @@ void main() {
     expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
   });
 
+  test('TTS that never stops: Panic is bounded and the HUD still goes black',
+      skip: _skip, () async {
+    await r.startListening();
+    r.translator.outputs[1] = 'HUNG TTS';
+    r.finalTurn(1);
+    await r.until(() => r.deliveries.length == 1);
+    r.tts.hangOnStop = true;
+
+    final Stopwatch clock = Stopwatch()..start();
+    final CommandResult panic = await r.panic();
+    clock.stop();
+
+    expect(panic.status, CommandStatus.accepted);
+    expect(panic.failedCleanup, <String>['tts']);
+    expect(clock.elapsed, lessThan(const Duration(seconds: 8)),
+        reason: 'one default cleanup deadline for the hung TTS');
+    expect(r.input.running, isFalse);
+    expect(r.runtime.state, HorizonTranslationRuntimeState.stopped);
+    expect((await r.frame('panic_hung_tts')).lit, 0);
+  });
+
   test('TTS, mic and display cleanup failures do not block each other',
       skip: _skip, () async {
     await r.startListening();
@@ -322,6 +343,7 @@ final class _Rig {
     await _sub.cancel();
     input.throwOnStop = false;
     tts.throwOnStop = false;
+    tts.hangOnStop = false;
     transport.failClear = false;
     await control.dispose();
     await runtime.dispose();
@@ -440,6 +462,7 @@ final class _Tts implements SpeechSynthesisProvider {
   final List<TranslationSegment> spoken = <TranslationSegment>[];
   Completer<void>? speakGate;
   bool throwOnStop = false;
+  bool hangOnStop = false;
   int stopCalls = 0;
 
   @override
@@ -461,6 +484,7 @@ final class _Tts implements SpeechSynthesisProvider {
   @override
   Future<void> stop() async {
     stopCalls++;
+    if (hangOnStop) await Completer<void>().future;
     if (throwOnStop) throw StateError('tts stop failed');
   }
 
