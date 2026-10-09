@@ -324,6 +324,42 @@ void main() {
         HttpStatus.ok);
   });
 
+  test('the body deadline is total, not reset by slow chunks', () async {
+    final Socket socket = await Socket.connect(server.uri.host, server.uri.port);
+    final Stopwatch elapsed = Stopwatch()..start();
+    socket.write('POST ${RemoteControlServer.commandsPath} HTTP/1.1\r\n'
+        'Host: 127.0.0.1\r\n'
+        'Authorization: Bearer ${token.reveal()}\r\n'
+        'Content-Type: application/json\r\n'
+        'Content-Length: 200\r\n\r\n{');
+    await socket.flush();
+
+    final Future<String> replyFuture = utf8.decoder.bind(socket).join();
+    unawaited(() async {
+      for (int i = 0; i < 8; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 80));
+        try {
+          socket.add(const <int>[0x20]);
+          await socket.flush();
+        } on Object {
+          return;
+        }
+      }
+    }());
+
+    final String reply =
+        await replyFuture.timeout(const Duration(seconds: 2), onTimeout: () => 'TIMEOUT');
+    elapsed.stop();
+    socket.destroy();
+
+    expect(reply, isNot('TIMEOUT'));
+    expect(elapsed.elapsed, lessThan(const Duration(milliseconds: 700)));
+    expect(reply, anyOf(isEmpty, startsWith('HTTP/1.1 4')));
+    expect(port.commands, isEmpty);
+    expect((await send('GET', RemoteControlServer.statusPath)).status,
+        HttpStatus.ok);
+  });
+
   test('golden: every response shape Studio must parse', () async {
     // Fixed clock and ids, so the file is stable. Studio's parser is tested
     // against it (apps/engineering-console/tests/remoteControl.test.ts).

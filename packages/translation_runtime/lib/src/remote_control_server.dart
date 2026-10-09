@@ -236,9 +236,12 @@ final class RemoteControlServer {
   }
 
   /// Reads at most [maxBodyBytes] within [_readTimeout]; null when larger.
-  Future<Uint8List?> _readBounded(HttpRequest request) async {
+  Future<Uint8List?> _readBounded(HttpRequest request) =>
+      _readBoundedWithinLimit(request).timeout(_readTimeout);
+
+  Future<Uint8List?> _readBoundedWithinLimit(HttpRequest request) async {
     final BytesBuilder bytes = BytesBuilder(copy: false);
-    await for (final List<int> chunk in request.timeout(_readTimeout)) {
+    await for (final List<int> chunk in request) {
       if (bytes.length + chunk.length > maxBodyBytes) return null;
       bytes.add(chunk);
     }
