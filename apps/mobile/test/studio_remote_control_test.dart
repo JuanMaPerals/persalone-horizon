@@ -23,6 +23,7 @@ void main() {
         port,
         config: const LiveStreamConfig(port: 0, allowedOrigins: <String>{}),
         tokenDirectory: Directory('${dir.path}/horizon-control'),
+        targetId: '0123456789abcdef0123456789abcdef',
       );
 
   Future<(int, Map<String, Object?>)> call(StudioRemoteControl control,

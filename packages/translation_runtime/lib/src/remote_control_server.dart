@@ -4,6 +4,8 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
+import 'package:persalone_contracts/persalone_contracts.dart';
+
 import 'remote_control_gateway.dart';
 
 /// Per-launch bearer credential of the remote control channel: 256 random
@@ -69,8 +71,8 @@ final class RemoteControlToken {
 /// Responses carry coded tokens and numbers only, never the credential.
 final class RemoteControlServer {
   RemoteControlServer._(this._server, this._gateway, this._token,
-      this._allowedOrigins, this._maxFailedAuth, this._maxInFlight,
-      this._readTimeout, this._onLocked);
+      this.targetId, this._allowedOrigins, this._maxFailedAuth,
+      this._maxInFlight, this._readTimeout, this._onLocked);
 
   static const String statusPath = '/v1/control/status';
   static const String commandsPath = '/v1/control/commands';
@@ -85,6 +87,7 @@ final class RemoteControlServer {
   final HttpServer _server;
   final RemoteControlGateway _gateway;
   final RemoteControlToken _token;
+  final String targetId;
   final Set<String> _allowedOrigins;
   final int _maxFailedAuth;
   final int _maxInFlight;
@@ -92,10 +95,12 @@ final class RemoteControlServer {
   final void Function()? _onLocked;
   int _failedAuth = 0;
   int _inFlight = 0;
+  int _panicInFlight = 0;
 
   static Future<RemoteControlServer> start(
     RemoteControlGateway gateway, {
     required RemoteControlToken token,
+    required String targetId,
     InternetAddress? address,
     int port = 0,
     Set<String> allowedOrigins = const <String>{},
@@ -104,6 +109,13 @@ final class RemoteControlServer {
     Duration readTimeout = const Duration(seconds: 2),
     void Function()? onLocked,
   }) async {
+    if (!RegExp(r'^[a-f0-9]{32}$').hasMatch(targetId)) {
+      throw ArgumentError.value(targetId, 'targetId', 'invalid target identity');
+    }
+    if (maxInFlight < 2) {
+      throw ArgumentError.value(maxInFlight, 'maxInFlight',
+          'at least one ordinary slot plus one PANIC slot is required');
+    }
     final InternetAddress bind = address ?? InternetAddress.loopbackIPv4;
     if (!bind.isLoopback) {
       throw ArgumentError.value(bind.address, 'address',
@@ -111,8 +123,15 @@ final class RemoteControlServer {
     }
     final HttpServer server = await HttpServer.bind(bind, port)
       ..idleTimeout = const Duration(seconds: 5);
-    final RemoteControlServer control = RemoteControlServer._(server, gateway,
-        token, allowedOrigins, maxFailedAuth, maxInFlight, readTimeout,
+    final RemoteControlServer control = RemoteControlServer._(
+        server,
+        gateway,
+        token,
+        targetId,
+        allowedOrigins,
+        maxFailedAuth,
+        maxInFlight,
+        readTimeout,
         onLocked);
     server.listen(control._handle);
     return control;
@@ -138,10 +157,16 @@ final class RemoteControlServer {
       ..headers.set('x-content-type-options', 'nosniff');
     try {
       await _route(request, response);
+    } on TimeoutException {
+      try {
+        await _reply(response, HttpStatus.requestTimeout, 'requestTimeout');
+      } on Object {
+        // The response was already sent or the peer is gone.
+      }
     } on Object {
       // Never echo an exception: it could carry request content.
       try {
-        await _reply(response, HttpStatus.badRequest, 'badRequest');
+        await _reply(response, HttpStatus.internalServerError, 'internalError');
       } on Object {
         // The response was already sent or the peer is gone.
       }
@@ -204,36 +229,63 @@ final class RemoteControlServer {
     // A legitimate operator can always recover the emergency channel from a
     // bad-auth throttle; unauthenticated local peers cannot lock it forever.
     _failedAuth = 0;
-    if (_inFlight >= _maxInFlight) {
-      return _reply(response, HttpStatus.serviceUnavailable, 'busy');
-    }
-    _inFlight++;
-    try {
-      if (method == 'GET') {
-        return _json(response, HttpStatus.ok, _gateway.status());
+    if (method == 'GET') {
+      if (_inFlight >= _maxInFlight - 1) {
+        return _reply(response, HttpStatus.serviceUnavailable, 'busy');
       }
-      if (request.headers.contentType?.mimeType != 'application/json') {
-        return _reply(
-            response, HttpStatus.unsupportedMediaType, 'unsupportedMediaType');
-      }
-      if (request.contentLength > maxBodyBytes) {
-        return _reply(response, HttpStatus.requestEntityTooLarge, 'tooLarge');
-      }
-      final Uint8List? body = await _readBounded(request);
-      if (body == null) {
-        return _reply(response, HttpStatus.requestEntityTooLarge, 'tooLarge');
-      }
-      Object? decoded;
+      _inFlight++;
       try {
-        decoded = jsonDecode(utf8.decode(body));
-      } on FormatException {
-        decoded = null; // the gateway answers `malformed`
+        return _json(response, HttpStatus.ok,
+            <String, Object?>{..._gateway.status(), 'targetId': targetId});
+      } finally {
+        _inFlight--;
       }
+    }
+    if (request.headers.contentType?.mimeType != 'application/json') {
+      return _reply(
+          response, HttpStatus.unsupportedMediaType, 'unsupportedMediaType');
+    }
+    if (request.contentLength > maxBodyBytes) {
+      return _reply(response, HttpStatus.requestEntityTooLarge, 'tooLarge');
+    }
+    final Uint8List? body = await _readBounded(request);
+    if (body == null) {
+      return _reply(response, HttpStatus.requestEntityTooLarge, 'tooLarge');
+    }
+    Object? decoded;
+    try {
+      decoded = jsonDecode(utf8.decode(body));
+    } on FormatException {
+      decoded = null; // the gateway answers malformed
+    }
+    bool panic = false;
+    try {
+      panic =
+          ControlCommandEnvelope.parse(decoded).action == ControlAction.panic;
+    } on ControlEnvelopeError {
+      // Malformed requests use ordinary capacity and are rejected by gateway.
+    }
+    if (panic) {
+      if (_panicInFlight >= 1) {
+        return _reply(response, HttpStatus.serviceUnavailable, 'busy');
+      }
+      _panicInFlight++;
+    } else {
+      if (_inFlight >= _maxInFlight - 1) {
+        return _reply(response, HttpStatus.serviceUnavailable, 'busy');
+      }
+      _inFlight++;
+    }
+    try {
       final Map<String, Object?> result =
           (await _gateway.submit(decoded)).toJson();
       return _json(response, HttpStatus.ok, result);
     } finally {
-      _inFlight--;
+      if (panic) {
+        _panicInFlight--;
+      } else {
+        _inFlight--;
+      }
     }
   }
 

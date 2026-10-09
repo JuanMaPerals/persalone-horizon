@@ -17,6 +17,7 @@ type ControlAction = (typeof ACTIONS)[number];
 
 export const RESULT_CODES = [
   'accepted',
+  'cleanupIncomplete',
   'deniedByPolicy',
   'duplicate',
   'replayed',
@@ -43,8 +44,10 @@ export const CHANNEL_ERRORS = [
   'unsupportedMediaType',
   'busy',
   'badRequest',
+  'internalError',
+  'requestTimeout',
 ] as const;
-export type ChannelErrorCode = (typeof CHANNEL_ERRORS)[number] | 'notLoopback' | 'unreachable' | 'requestTimeout' | 'badResponse' | 'actionNotAllowed';
+export type ChannelErrorCode = (typeof CHANNEL_ERRORS)[number] | 'notLoopback' | 'unreachable' | 'badResponse' | 'actionNotAllowed' | 'targetMismatch' | 'targetUnavailable';
 
 export class RemoteControlError extends Error {
   constructor(readonly code: ChannelErrorCode) {
@@ -54,6 +57,7 @@ export class RemoteControlError extends Error {
 }
 
 export interface ControlStatus {
+  readonly targetId: string;
   readonly sessionGeneration: number;
   readonly enabledActions: readonly StudioAction[];
   /** Phone clock minus Studio clock, estimated at the request midpoint. */
@@ -100,16 +104,16 @@ export function controlBaseUrl(raw: string): URL {
 }
 
 export function parseStatus(raw: unknown, clockOffsetMicros: number): ControlStatus {
-  if (!isRecord(raw) || !exactKeys(raw, ['schemaVersion', 'sessionGeneration', 'observedAt', 'enabledActions'])) {
+  if (!isRecord(raw) || !exactKeys(raw, ['schemaVersion', 'targetId', 'sessionGeneration', 'observedAt', 'enabledActions'])) {
     throw new RemoteControlError('badResponse');
   }
   const actions = raw.enabledActions;
-  if (raw.schemaVersion !== CONTROL_SCHEMA_VERSION || !isCount(raw.sessionGeneration) || !isCount(raw.observedAt) || !Array.isArray(actions) || !actions.every((a) => oneOf(ACTIONS, a))) {
+  if (raw.schemaVersion !== CONTROL_SCHEMA_VERSION || typeof raw.targetId !== 'string' || !/^[a-f0-9]{32}$/.test(raw.targetId) || !isCount(raw.sessionGeneration) || !isCount(raw.observedAt) || !Array.isArray(actions) || !actions.every((a) => oneOf(ACTIONS, a))) {
     throw new RemoteControlError('badResponse');
   }
   // Studio never offers an action it does not own, whatever the phone enables.
   const enabled = STUDIO_ACTIONS.filter((action) => actions.includes(action));
-  return { sessionGeneration: raw.sessionGeneration, enabledActions: enabled, clockOffsetMicros };
+  return { targetId: raw.targetId as string, sessionGeneration: raw.sessionGeneration, enabledActions: enabled, clockOffsetMicros };
 }
 
 export function parseResult(raw: unknown): ControlResult {

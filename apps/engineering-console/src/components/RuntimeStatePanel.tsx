@@ -103,6 +103,6 @@ export function RuntimeStatePanel(): ReactElement {
         })}
       </tbody>
     </table>
-    <RemoteControlPanel />
+    <RemoteControlPanel key={live?.streamId ?? 'unknown'} expectedTargetId={live?.connection === 'LIVE' ? live.streamId : null} />
   </section>;
 }

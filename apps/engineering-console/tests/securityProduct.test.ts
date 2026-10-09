@@ -22,5 +22,6 @@ describe('HORIZON Security product panel', () => {
     expect(source).toContain('runtimeEventsUrl()');
     expect(source).toContain('view?.degraded');
     expect(source).toContain("degraded ? 'PARTIAL'");
+    expect(source).toContain('expectedTargetId={connected ? live?.streamId ?? null : null}');
   });
 });

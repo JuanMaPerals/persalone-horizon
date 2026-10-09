@@ -16,6 +16,7 @@ enum ControlAction {
 
 enum ControlResultCode {
   accepted,
+  cleanupIncomplete,
   deniedByPolicy,
   duplicate,
   replayed,

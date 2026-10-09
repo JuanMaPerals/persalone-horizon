@@ -26,6 +26,7 @@ Future<void> main(List<String> args) async {
       ControlAction.panic,
     }),
     token: RemoteControlToken.forTesting(option('token')),
+    targetId: option('target-id'),
     port: int.parse(option('port')),
     allowedOrigins: <String>{option('allow-origin')},
   );

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,11 @@ import 'studio_remote_control.dart';
 
 void main() {
   runApp(const PersalOneApp());
+}
+
+String _newTargetId() {
+  final Random random = Random.secure();
+  return List<String>.generate(16, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0')).join();
 }
 
 /// Android-first shell. It exposes separate G3/G4 evidence controls and the G5
@@ -68,6 +74,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       'HORIZON_STUDIO_ORIGINS',
       defaultValue: LiveStreamConfig.defaultOrigins);
   RuntimeEventServer? _liveServer;
+  final String _targetId = _newTargetId();
 
   /// Studio STOP/PANIC over the authenticated loopback channel. Off unless a
   /// build sets `--dart-define=HORIZON_REMOTE_CONTROL=true`.
@@ -253,6 +260,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         events.events,
         port: config.port,
         allowedOrigins: config.allowedOrigins,
+        streamId: _targetId,
       );
       if (!mounted) {
         await server.close();
@@ -283,6 +291,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         // the token stays app-private and readable only via `adb run-as`.
         tokenDirectory:
             Directory('${Directory.systemTemp.path}/horizon-control'),
+        targetId: _targetId,
         onLocked: () {
           debugPrint('HORIZON_REMOTE_CONTROL bad-auth-throttled');
           if (!mounted) return;

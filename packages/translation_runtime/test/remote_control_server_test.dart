@@ -25,6 +25,7 @@ void main() {
           ControlAction.panic,
         }),
         token: token,
+        targetId: '0123456789abcdef0123456789abcdef',
         allowedOrigins: <String>{studio},
         maxFailedAuth: maxFailedAuth,
         readTimeout: const Duration(milliseconds: 200),
@@ -98,7 +99,9 @@ void main() {
   test('refuses to bind beyond loopback', () async {
     await expectLater(
       RemoteControlServer.start(RemoteControlGateway(port),
-          token: token, address: InternetAddress.anyIPv4),
+          token: token,
+          targetId: '0123456789abcdef0123456789abcdef',
+          address: InternetAddress.anyIPv4),
       throwsArgumentError,
     );
   });
@@ -136,10 +139,12 @@ void main() {
     expect(ok.status, HttpStatus.ok);
     expect(ok.json.keys, unorderedEquals(<String>[
       'schemaVersion',
+      'targetId',
       'sessionGeneration',
       'observedAt',
       'enabledActions'
     ]));
+    expect(ok.json['targetId'], '0123456789abcdef0123456789abcdef');
     expect(ok.json['sessionGeneration'], 3);
     expect(ok.json['enabledActions'], <String>['stop', 'panic']);
     expect(ok.headers.value('cache-control'), 'no-store');
@@ -377,6 +382,7 @@ void main() {
             ControlAction.panic
           }),
       token: token,
+      targetId: '0123456789abcdef0123456789abcdef',
       allowedOrigins: <String>{studio},
       maxFailedAuth: 2,
     );
@@ -409,6 +415,9 @@ void main() {
         send('POST', commands, json: at('panic', 'golden-stop-1')));
     await record('accepted-panic',
         send('POST', commands, json: at('panic', 'golden-panic-1')));
+    port.failedCleanupNext = true;
+    await record('cleanup-incomplete',
+        send('POST', commands, json: at('panic', 'golden-panic-cleanup-1')));
     await record('denied-start',
         send('POST', commands, json: at('start', 'golden-start-1')));
     await record('denied-device-disconnect',
@@ -449,6 +458,41 @@ void main() {
         send('GET', RemoteControlServer.statusPath, auth: 'Bearer wrong'));
 
     _golden('control-results.v1.ndjson', lines);
+  });
+
+  test('PANIC retains reserved server capacity while ordinary STOPs stall',
+      () async {
+    final Completer<void> gate = Completer<void>();
+    port.stopGate = gate;
+    final List<Future<_Reply>> pending = <Future<_Reply>>[
+      send('POST', RemoteControlServer.commandsPath,
+          json: envelope('stop', id: 'stall-stop-1')),
+      send('POST', RemoteControlServer.commandsPath,
+          json: envelope('stop', id: 'stall-stop-2')),
+      send('POST', RemoteControlServer.commandsPath,
+          json: envelope('stop', id: 'stall-stop-3')),
+    ];
+    await Future<void>.delayed(const Duration(milliseconds: 30));
+
+    final _Reply ordinaryBusy = await send(
+      'POST',
+      RemoteControlServer.commandsPath,
+      json: envelope('stop', id: 'stall-stop-4'),
+    );
+    expect(ordinaryBusy.status, HttpStatus.serviceUnavailable);
+    expect(ordinaryBusy.json['error'], 'busy');
+
+    final _Reply panic = await send(
+      'POST',
+      RemoteControlServer.commandsPath,
+      json: envelope('panic', id: 'reserved-panic-1'),
+    );
+    expect(panic.status, HttpStatus.ok);
+    expect(panic.json['resultCode'], anyOf('accepted', 'cleanupIncomplete'));
+
+    gate.complete();
+    await Future.wait(pending);
+    port.stopGate = null;
   });
 
   test('failed authentication throttles bad peers but valid bearer recovers',
@@ -502,6 +546,8 @@ final class _Port implements RuntimeControlPort {
   String? active;
   int generation = 0;
   bool rejectNext = false;
+  bool failedCleanupNext = false;
+  Completer<void>? stopGate;
 
   @override
   Stream<CommandResult> get results => const Stream<CommandResult>.empty();
@@ -515,14 +561,20 @@ final class _Port implements RuntimeControlPort {
   @override
   Future<CommandResult> execute(RuntimeCommand command) async {
     commands.add(command);
+    if (command.kind == RuntimeCommandKind.stop && stopGate != null) {
+      await stopGate!.future;
+    }
     final bool reject = rejectNext;
+    final bool failCleanup = failedCleanupNext;
     rejectNext = false;
+    failedCleanupNext = false;
     return CommandResult(
       commandId: command.commandId,
       kind: command.kind,
       origin: command.origin,
       status: reject ? CommandStatus.rejected : CommandStatus.accepted,
       rejection: reject ? CommandRejection.noActiveSession : null,
+      failedCleanup: failCleanup ? const <String>['microphone'] : const <String>[],
       observedAtMicros: 1,
     );
   }

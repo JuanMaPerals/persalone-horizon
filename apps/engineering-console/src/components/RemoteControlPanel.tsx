@@ -19,7 +19,7 @@ const errorCode = (error: unknown): string => (error instanceof RemoteControlErr
  * once the client holds it; nothing is stored or logged. START and every
  * other action stay on the phone.
  */
-export function RemoteControlPanel(): ReactElement {
+export function RemoteControlPanel({ expectedTargetId }: { expectedTargetId: string | null }): ReactElement {
   const [url, setUrl] = useState(DEFAULT_CONTROL_URL);
   const tokenInput = useRef<HTMLInputElement>(null);
   const targetRevision = useRef(0);
@@ -60,6 +60,8 @@ export function RemoteControlPanel(): ReactElement {
     try {
       const nextStatus = await next.status();
       if (revision !== targetRevision.current) return;
+      if (!expectedTargetId) throw new RemoteControlError('targetUnavailable');
+      if (nextStatus.targetId !== expectedTargetId) throw new RemoteControlError('targetMismatch');
       setStatus(nextStatus);
       setClient(next);
       setError(null);
@@ -137,13 +139,15 @@ export function RemoteControlPanel(): ReactElement {
         <span>Control token (adb run-as; kept in memory only)</span>
         <input ref={tokenInput} defaultValue="" onChange={(event) => setTokenTyped(event.target.value.trim() !== '')} type="password" autoComplete="off" spellCheck={false} />
       </label>
-      <button type="button" onClick={connect} disabled={busy !== null || panicBusy || !tokenTyped}>Connect control</button>
+      <button type="button" onClick={connect} disabled={busy !== null || panicBusy || !tokenTyped || !expectedTargetId}>Connect control</button>
       <button type="button" onClick={forget} disabled={client === null && !tokenTyped}>Forget token</button>
     </div>
     <p role="status">
       {status
         ? `CONTROL AUTHENTICATED · session generation ${status.sessionGeneration} · enabled: ${status.enabledActions.join(', ').toUpperCase()}`
-        : 'CONTROL NOT CONNECTED · Stop and Panic stay on the phone'}
+        : expectedTargetId
+          ? 'CONTROL NOT CONNECTED · Stop and Panic stay on the phone'
+          : 'CONTROL NOT CONNECTED · Runtime target identity unavailable'}
     </p>
     <button type="button" disabled title="Remote START is denied by policy: sessions start on the phone.">START</button>
     <button type="button" disabled={!enabled('stop')} onClick={() => void send('stop')}>STOP</button>

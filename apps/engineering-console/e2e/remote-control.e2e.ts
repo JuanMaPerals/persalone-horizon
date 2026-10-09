@@ -104,6 +104,23 @@ test.describe('HORIZON security control (authenticated channel)', () => {
     }
   });
 
+  test('refuses a control endpoint whose target identity differs from runtime evidence', async ({ page }) => {
+    await page.route(`${CONTROL}/v1/control/status`, async (route) => {
+      const response = await route.fetch();
+      const payload = await response.json() as Record<string, unknown>;
+      await route.fulfill({
+        response,
+        json: { ...payload, targetId: 'ffffffffffffffffffffffffffffffff' },
+      });
+    });
+    const control = await openControl(page);
+    await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
+    await control.getByRole('button', { name: 'Connect control' }).click();
+    await expect(control.getByRole('alert')).toHaveText('Control error: targetMismatch');
+    await expect(control.getByRole('button', { name: 'STOP', exact: true })).toBeDisabled();
+    await expect(control.getByRole('button', { name: 'PANIC', exact: true })).toBeDisabled();
+  });
+
   test('a non-loopback control URL is refused before any request', async ({ page }) => {
     const control = await openControl(page);
     await control.getByLabel('Phone control URL (loopback, via adb forward)').fill('http://192.168.1.20:47801');

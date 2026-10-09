@@ -72,7 +72,7 @@ export function SecurityPanel(): ReactElement {
         <span className="local-only">LOOPBACK ONLY</span>
       </div>
       <p className="security-control-copy">The phone control channel is opt-in, binds to loopback, requires a per-launch bearer credential and accepts only the actions explicitly enabled by policy. The credential is kept in browser memory only and is never rendered back into the page.</p>
-      <RemoteControlPanel />
+      <RemoteControlPanel key={connected ? live?.streamId ?? 'unknown' : 'unknown'} expectedTargetId={connected ? live?.streamId ?? null : null} />
     </div>
 
     <div className="security-boundary">

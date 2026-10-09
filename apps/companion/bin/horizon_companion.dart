@@ -46,6 +46,7 @@ Future<void> main(List<String> args) async {
     eventsPort: int.parse(opts['events-port']?.last ?? '47812'),
     allowedOrigins: origins,
     token: opts['token']?.last,
+    streamId: opts['stream-id']?.last,
   );
   stdout.writeln('HORIZON_COMPANION_READY url=${api.uri} token=${api.token} events=${api.eventsUri}');
   unawaited(ProcessSignal.sigint.watch().first.then((_) async {

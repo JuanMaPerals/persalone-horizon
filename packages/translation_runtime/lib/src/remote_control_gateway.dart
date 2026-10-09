@@ -108,14 +108,25 @@ final class RemoteControlGateway {
       ControlAction.deviceSelect =>
         throw StateError('policy matrix violated'),
     };
-    final CommandResult result = await _port.execute(command);
-    return _result(
-      result.status == CommandStatus.accepted
-          ? ControlResultCode.accepted
-          : ControlResultCode.rejectedByRuntime,
-      _clock().microsecondsSinceEpoch,
-      envelope,
-    );
+    try {
+      final CommandResult result = await _port.execute(command);
+      final ControlResultCode code = result.status != CommandStatus.accepted
+          ? ControlResultCode.rejectedByRuntime
+          : result.failedCleanup.isNotEmpty
+              ? ControlResultCode.cleanupIncomplete
+              : ControlResultCode.accepted;
+      return _result(
+        code,
+        _clock().microsecondsSinceEpoch,
+        envelope,
+      );
+    } on Object {
+      return _result(
+        ControlResultCode.rejectedByRuntime,
+        _clock().microsecondsSinceEpoch,
+        envelope,
+      );
+    }
   }
 
   /// What a remote client needs to address a command: the current session

@@ -40,6 +40,13 @@ describe('runtime event stream wiring (golden from G5 runtime)', () => {
     expect(view.captionEnvironment).toBe('SIMULATED');
     expect(view.captionTruth).toBe('FAILED');
   });
+
+  it('counts cleanupFailed as a security-relevant runtime error', () => {
+    const line = JSON.stringify({ schema: 'horizon.runtime-event.v1', seq: 1, atMicros: 1, kind: 'diagnostic', session: { id: 's', epoch: 1 }, code: 'cleanupFailed', component: 'microphone', turn: null, detail: null });
+    const view = reduceRuntimeEvents(parseRuntimeEventStream(line));
+    expect(view.errorCount).toBe(1);
+    expect(view.lastError).toEqual({ code: 'cleanupFailed', component: 'microphone', detail: null });
+  });
 });
 
 describe('degraded and hostile input', () => {

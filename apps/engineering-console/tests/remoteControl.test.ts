@@ -25,12 +25,12 @@ const golden: GoldenLine[] = readFileSync(new URL('./fixtures/control-results.v1
   .map((line) => JSON.parse(line) as GoldenLine);
 
 const token = 'test-token-test-token-test-token';
-const status: ControlStatus = { sessionGeneration: 4, enabledActions: ['stop', 'panic'], clockOffsetMicros: 2_500_000 };
+const status: ControlStatus = { targetId: '0123456789abcdef0123456789abcdef', sessionGeneration: 4, enabledActions: ['stop', 'panic'], clockOffsetMicros: 2_500_000 };
 
 describe('control responses from the phone (golden)', () => {
   it('parses the status and every gateway result code', () => {
     const parsed = parseStatus(golden.find((line) => line.label === 'status')!.body, 0);
-    expect(parsed).toEqual({ sessionGeneration: 4, enabledActions: ['stop', 'panic'], clockOffsetMicros: 0 });
+    expect(parsed).toEqual({ targetId: '0123456789abcdef0123456789abcdef', sessionGeneration: 4, enabledActions: ['stop', 'panic'], clockOffsetMicros: 0 });
 
     const results = golden.filter((line) => line.status === 200 && 'resultCode' in line.body).map((line) => parseResult(line.body));
     expect(new Set(results.map((r) => r.resultCode))).toEqual(new Set(RESULT_CODES));
@@ -67,7 +67,7 @@ describe('strict parsing (fail closed)', () => {
   });
 
   it('never offers an action Studio does not own, whatever the phone enables', () => {
-    const wide = { schemaVersion: 1, sessionGeneration: 1, observedAt: 1, enabledActions: ['start', 'deviceDisconnect', 'panic'] };
+    const wide = { schemaVersion: 1, targetId: '0123456789abcdef0123456789abcdef', sessionGeneration: 1, observedAt: 1, enabledActions: ['start', 'deviceDisconnect', 'panic'] };
     expect(parseStatus(wide, 0).enabledActions).toEqual(['panic']);
     expect(() => parseStatus({ ...wide, enabledActions: ['rm -rf'] }, 0)).toThrowError(RemoteControlError);
     expect(() => parseStatus({ ...wide, token }, 0)).toThrowError(RemoteControlError);
@@ -145,7 +145,7 @@ describe('client against a local server', () => {
   it('authenticates, corrects the clock and sends the exact envelope', async () => {
     const { url, seen } = await serve((req, body) =>
       req.url === '/v1/control/status'
-        ? [200, { schemaVersion: 1, sessionGeneration: 9, observedAt: 5_000_000, enabledActions: ['stop', 'panic'] }]
+        ? [200, { schemaVersion: 1, targetId: '0123456789abcdef0123456789abcdef', sessionGeneration: 9, observedAt: 5_000_000, enabledActions: ['stop', 'panic'] }]
         : [200, { schemaVersion: 1, commandId: JSON.parse(body).commandId, action: 'panic', resultCode: 'accepted', sessionGeneration: 9, observedAt: 5_000_001 }],
     );
     let now = 1_000_000;

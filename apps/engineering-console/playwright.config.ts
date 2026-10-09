@@ -20,14 +20,14 @@ export default defineConfig({
   outputDir: process.env.HORIZON_STUDIO_E2E_ARTIFACTS ?? 'test-results',
   webServer: [
     {
-      command: `dart run ../companion/bin/horizon_companion.dart --workspace ${workspace} --port 47811 --python ${python} --bridge ../../tooling/e2e/halo_emulator_bridge.py --events-port 47813 --allow-origin http://127.0.0.1:5174 --token studio-e2e-token`,
+      command: `dart run ../companion/bin/horizon_companion.dart --workspace ${workspace} --port 47811 --python ${python} --bridge ../../tooling/e2e/halo_emulator_bridge.py --events-port 47813 --stream-id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --allow-origin http://127.0.0.1:5174 --token studio-e2e-token`,
       url: 'http://127.0.0.1:47811/v1/health',
       reuseExistingServer: false,
       timeout: 120_000,
     },
     {
       // Real phone-side control server (test-only port and fixed token).
-      command: 'dart run ../../packages/translation_runtime/tool/remote_control_e2e_fixture.dart --port 47821 --probe-port 47822 --allow-origin http://127.0.0.1:5174 --token studio-e2e-control-token',
+      command: 'dart run ../../packages/translation_runtime/tool/remote_control_e2e_fixture.dart --port 47821 --probe-port 47822 --allow-origin http://127.0.0.1:5174 --target-id aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --token studio-e2e-control-token',
       url: 'http://127.0.0.1:47822/commands',
       reuseExistingServer: false,
       timeout: 120_000,

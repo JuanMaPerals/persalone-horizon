@@ -35,6 +35,7 @@ final class StudioRemoteControl {
     RuntimeControlPort control, {
     required LiveStreamConfig config,
     required Directory tokenDirectory,
+    required String targetId,
     void Function()? onLocked,
   }) async {
     final File tokenFile = File('${tokenDirectory.path}/token');
@@ -44,6 +45,7 @@ final class StudioRemoteControl {
     final RemoteControlServer server = await RemoteControlServer.start(
       RemoteControlGateway(control, enabledActions: enabledActions),
       token: token,
+      targetId: targetId,
       port: config.port,
       allowedOrigins: config.allowedOrigins,
       onLocked: onLocked,

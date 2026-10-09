@@ -48,6 +48,7 @@ final class CompanionApi {
     int eventsPort = 0,
     Set<String> allowedOrigins = const <String>{},
     String? token,
+    String? streamId,
   }) async {
     final HttpServer server = await HttpServer.bind(InternetAddress.loopbackIPv4, port);
     final AppRunHost host = AppRunHost(workspace, emulator);
@@ -55,6 +56,7 @@ final class CompanionApi {
       host.events.events,
       port: eventsPort,
       allowedOrigins: allowedOrigins,
+      streamId: streamId,
     );
     final CompanionApi api = CompanionApi._(
       server,

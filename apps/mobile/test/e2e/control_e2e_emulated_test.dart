@@ -230,7 +230,8 @@ void main() {
       tokens = Directory.systemTemp.createTempSync('control-e2e-');
       remote = await StudioRemoteControl.start(r.control,
           config: const LiveStreamConfig(port: 0, allowedOrigins: <String>{}),
-          tokenDirectory: tokens);
+          tokenDirectory: tokens,
+          targetId: '0123456789abcdef0123456789abcdef');
       token = remote.tokenFile.readAsStringSync();
     });
 

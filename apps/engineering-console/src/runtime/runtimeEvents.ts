@@ -292,7 +292,7 @@ export interface RuntimeView {
   readonly selfEcho: { readonly suspected: number; readonly withTextOverlap: number };
 }
 
-const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied']);
+const errorCodes = new Set(['captionFailed', 'captionBlocked', 'synthesisFailed', 'providerUnavailable', 'frameRejected', 'consentDenied', 'cleanupFailed']);
 
 export function reduceRuntimeEvents(stream: ParsedRuntimeStream): RuntimeView {
   let sessionId: Known<string> = 'UNKNOWN';

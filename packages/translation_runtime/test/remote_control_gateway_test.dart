@@ -228,6 +228,15 @@ void main() {
     expect(reached, greaterThan(0));
   });
 
+  test('cleanup failures are explicit and runtime exceptions fail closed', () async {
+    port.failedCleanupNext = true;
+    expect((await gateway.submit(envelope('panic'))).resultCode,
+        ControlResultCode.cleanupIncomplete);
+    port.throwNext = true;
+    expect((await gateway.submit(envelope('stop'))).resultCode,
+        ControlResultCode.rejectedByRuntime);
+  });
+
   test('composes with the real controller: remote STOP works, START denied',
       () async {
     final _Runtime rig = _Runtime();
@@ -344,6 +353,8 @@ final class _Port implements RuntimeControlPort {
   final List<RuntimeCommand> commands = <RuntimeCommand>[];
   String? active;
   int generation = 0;
+  bool failedCleanupNext = false;
+  bool throwNext = false;
 
   @override
   Stream<CommandResult> get results => const Stream<CommandResult>.empty();
@@ -358,11 +369,18 @@ final class _Port implements RuntimeControlPort {
   Future<CommandResult> execute(RuntimeCommand command) async {
     commands.add(command);
     expect(command.origin, ControlOrigin.remote);
+    if (throwNext) {
+      throwNext = false;
+      throw StateError('runtime failure');
+    }
+    final bool failCleanup = failedCleanupNext;
+    failedCleanupNext = false;
     return CommandResult(
       commandId: command.commandId,
       kind: command.kind,
       origin: command.origin,
       status: CommandStatus.accepted,
+      failedCleanup: failCleanup ? const <String>['microphone'] : const <String>[],
       observedAtMicros: 1,
     );
   }

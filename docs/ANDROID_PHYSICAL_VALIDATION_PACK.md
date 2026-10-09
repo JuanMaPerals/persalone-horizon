@@ -215,7 +215,7 @@ sends it only to a loopback URL. Do not paste it anywhere else.
 | Refusal | Meaning |
 |---|---|
 | `unauthorized` | wrong or old token (a relaunch rotates it) |
-| `controlLocked` | 10 failed authentications: the channel is closed until the app is relaunched |
+| `controlLocked` | repeated bad-auth attempts are throttled; reread and use the current valid bearer to recover immediately. Relaunch only when intentionally rotating the per-launch token |
 | `hostNotAllowed` / `originNotAllowed` | the request did not come from loopback Studio |
 | `staleGeneration` | a STOP aimed at an earlier session: **Refresh status** and retry |
 | `expired` / `notYetValid` | the command was more than 30 s old or dated in the future |
