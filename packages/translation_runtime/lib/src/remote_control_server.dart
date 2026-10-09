@@ -30,13 +30,16 @@ final class RemoteControlToken {
 
   String reveal() => _value;
 
-  /// Constant-time comparison over the whole candidate.
+  /// Length-aware comparison that never exits on the first mismatch.
   bool matches(String candidate) {
     final List<int> a = utf8.encode(_value);
     final List<int> b = utf8.encode(candidate);
     int diff = a.length ^ b.length;
-    for (int i = 0; i < b.length; i++) {
-      diff |= b[i] ^ a[i % a.length];
+    final int length = a.length > b.length ? a.length : b.length;
+    for (int i = 0; i < length; i++) {
+      final int av = i < a.length ? a[i] : 0;
+      final int bv = i < b.length ? b[i] : 0;
+      diff |= av ^ bv;
     }
     return diff == 0;
   }

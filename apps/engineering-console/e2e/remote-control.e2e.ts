@@ -10,6 +10,7 @@ const TOKEN = 'studio-e2e-control-token';
 async function openControl(page: import('@playwright/test').Page) {
   await page.addInitScript(() => window.localStorage.setItem('persalone.studio.locale', 'en'));
   await page.goto('/');
+  await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('Security').click();
   const control = page.getByLabel('Remote control');
   await control.getByLabel('Phone control URL (loopback, via adb forward)').fill(CONTROL);
   return control;
@@ -19,7 +20,7 @@ async function commands(request: import('@playwright/test').APIRequestContext) {
   return ((await (await request.get(PROBE)).json()) as { commands: { kind: string; origin: string }[] }).commands;
 }
 
-test.describe('Studio remote control (authenticated channel)', () => {
+test.describe('HORIZON security control (authenticated channel)', () => {
   test('without authentication nothing is enabled and nothing is sent', async ({ page, request }) => {
     const before = (await commands(request)).length;
     const control = await openControl(page);

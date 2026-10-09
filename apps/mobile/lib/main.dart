@@ -76,7 +76,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       'HORIZON_REMOTE_CONTROL_PORT',
       defaultValue: LiveStreamConfig.defaultControlPort);
   StudioRemoteControl? _studioControl;
-  String _remoteStatus = 'Control remoto de Studio: desactivado.';
+  String _remoteStatus = 'Control remoto de HORIZON: desactivado.';
 
   /// Captions to a physical Halo over the Brilliant BLE transport. Off unless
   /// a build sets `HORIZON_HALO_CAPTIONS=true`, so runs without a Halo never
@@ -281,7 +281,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         onLocked: () {
           debugPrint('HORIZON_REMOTE_CONTROL locked');
           if (!mounted) return;
-          setState(() => _remoteStatus = 'Control remoto de Studio: BLOQUEADO '
+          setState(() => _remoteStatus = 'Control remoto de HORIZON: BLOQUEADO '
               'tras intentos fallidos. Relanza la app para uno nuevo.');
         },
       );
@@ -292,13 +292,13 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       _studioControl = control;
       debugPrint('HORIZON_REMOTE_CONTROL ${control.server.uri} '
           'token-file ${control.tokenFile.path}');
-      setState(() => _remoteStatus = 'Control remoto de Studio: ACTIVO '
+      setState(() => _remoteStatus = 'Control remoto de HORIZON: ACTIVO '
           '(solo STOP y PANIC, loopback + adb, autenticado).');
     } on Object catch (error) {
       debugPrint('HORIZON_REMOTE_CONTROL unavailable: ${error.runtimeType}');
       if (!mounted) return;
       setState(() => _remoteStatus =
-          'Control remoto de Studio: no disponible (${error.runtimeType}).');
+          'Control remoto de HORIZON: no disponible (${error.runtimeType}).');
     }
   }
 

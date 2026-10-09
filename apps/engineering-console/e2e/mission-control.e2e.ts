@@ -27,4 +27,9 @@ test('HORIZON product home navigates user capabilities', async ({ page }) => {
   await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('Accessibility').click();
   await expect(page.getByRole('heading', { name: 'Live captions with evidence.' })).toBeVisible();
   await expect(page.getByText(/No physical claim without HALO_REAL \+ MEASURED/)).toBeVisible();
+
+  await page.getByRole('button', { name: '‹ Home' }).click();
+  await page.getByRole('navigation', { name: 'HORIZON navigation' }).getByTitle('Security').click();
+  await expect(page.getByRole('heading', { name: 'Stop safely. Know what failed.' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Authenticated STOP / PANIC' })).toBeVisible();
 });
