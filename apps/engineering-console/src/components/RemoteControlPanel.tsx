@@ -36,12 +36,12 @@ export function RemoteControlPanel({ expectedTargetId }: { expectedTargetId: str
     setTokenTyped(false);
   };
 
-  const invalidateTarget = () => {
+  const invalidateTarget = (retainedError: string | null = null) => {
     targetRevision.current += 1;
     setClient(null);
     setStatus(null);
     setLast(null);
-    setError(null);
+    setError(retainedError);
     setBusy(null);
     setPanicBusy(false);
     clearInput();
@@ -111,9 +111,13 @@ export function RemoteControlPanel({ expectedTargetId }: { expectedTargetId: str
       setStatus({ ...status, sessionGeneration: result.sessionGeneration });
     } catch (caught) {
       if (revision !== targetRevision.current) return;
-      setError(errorCode(caught));
+      const code = errorCode(caught);
       if (caught instanceof RemoteControlError && (caught.code === 'unauthorized' || caught.code === 'controlLocked')) {
-        forget();
+        // Drop the authenticated client and credential, but retain why the
+        // safety command was not executed so the operator can recover.
+        invalidateTarget(code);
+      } else {
+        setError(code);
       }
     } finally {
       if (revision === targetRevision.current) {

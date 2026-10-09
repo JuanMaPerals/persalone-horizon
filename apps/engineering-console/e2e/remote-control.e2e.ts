@@ -57,6 +57,27 @@ test.describe('HORIZON security control (authenticated channel)', () => {
     expect(await page.content()).not.toContain(TOKEN);
   });
 
+  test('preserves auth failure reason when a connected target rejects a safety command', async ({ page }) => {
+    const control = await openControl(page);
+    await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
+    await control.getByRole('button', { name: 'Connect control' }).click();
+    await expect(control.getByRole('status')).toContainText('CONTROL AUTHENTICATED');
+
+    await page.route(`${CONTROL}/v1/control/commands`, async (route) => {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'unauthorized' }),
+      });
+    });
+
+    await control.getByRole('button', { name: 'STOP', exact: true }).click();
+    await expect(control.getByRole('status')).toContainText('CONTROL NOT CONNECTED');
+    await expect(control.getByRole('alert')).toHaveText('Control error: unauthorized');
+    await expect(control.getByRole('button', { name: 'STOP', exact: true })).toBeDisabled();
+    await expect(control.getByRole('button', { name: 'PANIC', exact: true })).toBeDisabled();
+  });
+
   test('editing the URL invalidates the authenticated target immediately', async ({ page }) => {
     const control = await openControl(page);
     await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
