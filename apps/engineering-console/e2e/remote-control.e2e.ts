@@ -99,6 +99,7 @@ test.describe('HORIZON security control (authenticated channel)', () => {
       await expect(control.getByText('Last command: panic · accepted')).toBeVisible();
     } finally {
       releaseStop();
+      await expect(control.getByText('Last command: stop · accepted')).toBeVisible();
       await page.unroute(commandRoute);
     }
   });
