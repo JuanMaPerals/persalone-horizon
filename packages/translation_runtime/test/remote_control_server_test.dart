@@ -445,12 +445,13 @@ void main() {
         send('GET', RemoteControlServer.statusPath, auth: 'Bearer wrong'));
     await record('unauthorized',
         send('GET', RemoteControlServer.statusPath, auth: 'Bearer wrong'));
-    await record('control-locked', send('GET', RemoteControlServer.statusPath));
+    await record('control-locked',
+        send('GET', RemoteControlServer.statusPath, auth: 'Bearer wrong'));
 
     _golden('control-results.v1.ndjson', lines);
   });
 
-  test('repeated failed authentication locks the channel (fail-closed)',
+  test('failed authentication throttles bad peers but valid bearer recovers',
       () async {
     await server.close();
     server = await startServer(maxFailedAuth: 3);
@@ -463,11 +464,25 @@ void main() {
     }
     expect(server.locked, isTrue);
     expect(locks, 1);
-    final _Reply after = await send('POST', RemoteControlServer.commandsPath,
-        json: envelope('panic'));
-    expect(after.status, HttpStatus.forbidden);
-    expect(after.json['error'], 'controlLocked');
-    expect(port.commands, isEmpty, reason: 'even the right token is refused');
+
+    final _Reply throttled = await send('GET', RemoteControlServer.statusPath,
+        auth: 'Bearer still-wrong');
+    expect(throttled.status, HttpStatus.forbidden);
+    expect(throttled.json['error'], 'controlLocked');
+    expect(port.commands, isEmpty);
+
+    final _Reply recovered =
+        await send('GET', RemoteControlServer.statusPath);
+    expect(recovered.status, HttpStatus.ok,
+        reason: 'a correct bearer must not be locked out by local bad peers');
+    expect(server.locked, isFalse);
+
+    expect(
+        (await send('GET', RemoteControlServer.statusPath,
+                auth: 'Bearer wrong-again'))
+            .status,
+        HttpStatus.unauthorized,
+        reason: 'successful authentication resets the bad-auth throttle');
   });
 }
 

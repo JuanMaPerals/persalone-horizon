@@ -12,7 +12,9 @@ describe('HORIZON Security product panel', () => {
     expect(html).toContain('LOOPBACK ONLY');
     expect(html).toContain('Fail closed');
     expect(html).toContain('CONTROL NOT CONNECTED');
+    expect(html).toContain('UNKNOWN');
     expect(html).not.toContain('CONTROL AUTHENTICATED');
+    expect(html).not.toContain('NONE OBSERVED');
   });
 
   it('uses the shared configurable runtime endpoint', () => {

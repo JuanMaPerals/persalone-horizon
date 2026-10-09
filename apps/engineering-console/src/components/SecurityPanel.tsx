@@ -19,7 +19,11 @@ export function SecurityPanel(): ReactElement {
   const runtimeState = trustworthy ? view?.sessionState ?? 'UNKNOWN' : 'UNKNOWN';
   const deviceState = trustworthy ? view?.deviceState ?? 'UNKNOWN' : 'UNKNOWN';
   const errorCount: string | number = degraded ? 'PARTIAL' : trustworthy ? view?.errorCount ?? 0 : 'UNKNOWN';
-  const lastError = trustworthy && view?.lastError ? `${view.lastError.code}${view.lastError.component ? ` · ${view.lastError.component}` : ''}` : 'NONE OBSERVED';
+  const lastError = !trustworthy
+    ? 'UNKNOWN'
+    : view?.lastError
+      ? `${view.lastError.code}${view.lastError.component ? ` · ${view.lastError.component}` : ''}`
+      : 'NONE OBSERVED';
   const failureCode = trustworthy ? view?.failureCode ?? 'NONE OBSERVED' : 'UNKNOWN';
 
   return <section className="security-product" aria-label="Security">

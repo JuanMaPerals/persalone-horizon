@@ -44,7 +44,7 @@ export const CHANNEL_ERRORS = [
   'busy',
   'badRequest',
 ] as const;
-export type ChannelErrorCode = (typeof CHANNEL_ERRORS)[number] | 'notLoopback' | 'unreachable' | 'badResponse' | 'actionNotAllowed';
+export type ChannelErrorCode = (typeof CHANNEL_ERRORS)[number] | 'notLoopback' | 'unreachable' | 'requestTimeout' | 'badResponse' | 'actionNotAllowed';
 
 export class RemoteControlError extends Error {
   constructor(readonly code: ChannelErrorCode) {
@@ -156,6 +156,7 @@ export interface RemoteControlClientOptions {
   readonly fetchImpl?: typeof fetch;
   readonly nowMicros?: () => number;
   readonly commandId?: () => string;
+  readonly requestTimeoutMs?: number;
 }
 
 export class RemoteControlClient {
@@ -164,6 +165,7 @@ export class RemoteControlClient {
   private readonly fetchImpl: typeof fetch;
   private readonly nowMicros: () => number;
   private readonly commandId: () => string;
+  private readonly requestTimeoutMs: number;
 
   constructor(options: RemoteControlClientOptions) {
     this.base = controlBaseUrl(options.baseUrl);
@@ -171,6 +173,10 @@ export class RemoteControlClient {
     this.fetchImpl = options.fetchImpl ?? fetch.bind(globalThis);
     this.nowMicros = options.nowMicros ?? (() => Date.now() * 1000);
     this.commandId = options.commandId ?? (() => newCommandId());
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 2_500;
+    if (!Number.isFinite(this.requestTimeoutMs) || this.requestTimeoutMs <= 0) {
+      throw new RemoteControlError('badRequest');
+    }
   }
 
   async status(): Promise<ControlStatus> {
@@ -190,29 +196,37 @@ export class RemoteControlClient {
   }
 
   private async request(method: 'GET' | 'POST', path: string, body?: ControlEnvelope): Promise<unknown> {
-    let response: Response;
+    const controller = new AbortController();
+    const timer = globalThis.setTimeout(() => controller.abort(), this.requestTimeoutMs);
     try {
-      response = await this.fetchImpl(new URL(path, this.base).toString(), {
-        method,
-        headers: {
-          authorization: `Bearer ${this.token}`,
-          ...(body === undefined ? {} : { 'content-type': 'application/json' }),
-        },
-        body: body === undefined ? undefined : JSON.stringify(body),
-        cache: 'no-store',
-        credentials: 'omit',
-        redirect: 'error',
-      });
-    } catch {
-      throw new RemoteControlError('unreachable');
+      let response: Response;
+      try {
+        response = await this.fetchImpl(new URL(path, this.base).toString(), {
+          method,
+          headers: {
+            authorization: `Bearer ${this.token}`,
+            ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+          },
+          body: body === undefined ? undefined : JSON.stringify(body),
+          cache: 'no-store',
+          credentials: 'omit',
+          redirect: 'error',
+          signal: controller.signal,
+        });
+      } catch {
+        throw new RemoteControlError(controller.signal.aborted ? 'requestTimeout' : 'unreachable');
+      }
+
+      let payload: unknown;
+      try {
+        payload = await response.json();
+      } catch {
+        throw new RemoteControlError(controller.signal.aborted ? 'requestTimeout' : 'badResponse');
+      }
+      if (!response.ok) throw new RemoteControlError(parseChannelError(payload));
+      return payload;
+    } finally {
+      globalThis.clearTimeout(timer);
     }
-    let payload: unknown;
-    try {
-      payload = await response.json();
-    } catch {
-      throw new RemoteControlError('badResponse');
-    }
-    if (!response.ok) throw new RemoteControlError(parseChannelError(payload));
-    return payload;
   }
 }

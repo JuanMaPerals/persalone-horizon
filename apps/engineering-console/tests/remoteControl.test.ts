@@ -180,6 +180,25 @@ describe('client against a local server', () => {
     expect(seen).toHaveLength(0);
   });
 
+  it('bounds a stalled request so emergency controls cannot hang forever', async () => {
+    let aborted = false;
+    const fetchImpl = ((_input: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          aborted = true;
+          reject(new Error('aborted'));
+        }, { once: true });
+      })) as typeof fetch;
+    const client = new RemoteControlClient({
+      baseUrl: 'http://127.0.0.1:47801',
+      token,
+      fetchImpl,
+      requestTimeoutMs: 20,
+    });
+    await expect(client.status()).rejects.toMatchObject({ code: 'requestTimeout' });
+    expect(aborted).toBe(true);
+  });
+
   it('an unreachable phone is its own code', async () => {
     const client = new RemoteControlClient({ baseUrl: 'http://127.0.0.1:9', token });
     await expect(client.status()).rejects.toMatchObject({ code: 'unreachable' });

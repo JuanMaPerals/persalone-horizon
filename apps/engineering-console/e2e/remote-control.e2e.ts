@@ -57,6 +57,52 @@ test.describe('HORIZON security control (authenticated channel)', () => {
     expect(await page.content()).not.toContain(TOKEN);
   });
 
+  test('editing the URL invalidates the authenticated target immediately', async ({ page }) => {
+    const control = await openControl(page);
+    await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
+    await control.getByRole('button', { name: 'Connect control' }).click();
+    await expect(control.getByRole('status')).toContainText('CONTROL AUTHENTICATED');
+
+    await control.getByLabel('Phone control URL (loopback, via adb forward)').fill('http://127.0.0.1:9');
+    await expect(control.getByRole('status')).toContainText('CONTROL NOT CONNECTED');
+    await expect(control.getByRole('button', { name: 'STOP', exact: true })).toBeDisabled();
+    await expect(control.getByRole('button', { name: 'PANIC', exact: true })).toBeDisabled();
+
+    await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
+    await control.getByRole('button', { name: 'Connect control' }).click();
+    await expect(control.getByRole('alert')).toHaveText('Control error: unreachable');
+    await expect(control.getByRole('button', { name: 'PANIC', exact: true })).toBeDisabled();
+  });
+
+  test('PANIC stays available while an ordinary STOP request is pending', async ({ page }) => {
+    const control = await openControl(page);
+    await control.getByLabel('Control token (adb run-as; kept in memory only)').fill(TOKEN);
+    await control.getByRole('button', { name: 'Connect control' }).click();
+    await expect(control.getByRole('status')).toContainText('CONTROL AUTHENTICATED');
+
+    let releaseStop!: () => void;
+    const stopGate = new Promise<void>((resolve) => { releaseStop = resolve; });
+    const commandRoute = `${CONTROL}/v1/control/commands`;
+    await page.route(commandRoute, async (route) => {
+      const request = route.request();
+      const raw = request.method() === 'POST' ? request.postData() : null;
+      const action = raw ? (JSON.parse(raw) as { action?: string }).action : null;
+      if (action === 'stop') await stopGate;
+      await route.continue();
+    });
+
+    try {
+      await control.getByRole('button', { name: 'STOP', exact: true }).click();
+      await expect(control.getByRole('button', { name: 'STOP', exact: true })).toBeDisabled();
+      await expect(control.getByRole('button', { name: 'PANIC', exact: true })).toBeEnabled();
+      await control.getByRole('button', { name: 'PANIC', exact: true }).click();
+      await expect(control.getByText('Last command: panic · accepted')).toBeVisible();
+    } finally {
+      releaseStop();
+      await page.unroute(commandRoute);
+    }
+  });
+
   test('a non-loopback control URL is refused before any request', async ({ page }) => {
     const control = await openControl(page);
     await control.getByLabel('Phone control URL (loopback, via adb forward)').fill('http://192.168.1.20:47801');

@@ -61,8 +61,10 @@ final class RemoteControlToken {
 /// - `Host` must name loopback (DNS rebinding) and a present `Origin` must be
 ///   allow-listed;
 /// - bodies are JSON, at most [maxBodyBytes], read within [readTimeout];
-/// - after [maxFailedAuth] failed authentications the channel locks until the
-///   app is relaunched (with a new token). Local controls are unaffected.
+/// - after [maxFailedAuth] consecutive failed authentications, unauthenticated
+///   peers are throttled with `controlLocked`; a correct bearer still passes
+///   and resets the failure counter, so bad local peers cannot disable the
+///   emergency channel for the legitimate operator.
 ///
 /// Responses carry coded tokens and numbers only, never the credential.
 final class RemoteControlServer {
@@ -122,7 +124,8 @@ final class RemoteControlServer {
         port: _server.port,
       );
 
-  /// True once too many failed authentications closed the channel.
+  /// True while unauthenticated peers are throttled after repeated failures.
+  /// A correct bearer bypasses this throttle and resets it.
   bool get locked => _failedAuth >= _maxFailedAuth;
 
   Future<void> close() => _server.close(force: true);
@@ -187,15 +190,20 @@ final class RemoteControlServer {
       response.headers.set('allow', method);
       return _reply(response, HttpStatus.methodNotAllowed, 'methodNotAllowed');
     }
-    if (locked) {
-      return _reply(response, HttpStatus.forbidden, 'controlLocked');
-    }
-    if (!_authenticated(request.headers.value('authorization'))) {
+    final bool authenticated =
+        _authenticated(request.headers.value('authorization'));
+    if (!authenticated) {
+      if (locked) {
+        return _reply(response, HttpStatus.forbidden, 'controlLocked');
+      }
       _failedAuth++;
       if (locked) _onLocked?.call();
       response.headers.set('www-authenticate', 'Bearer');
       return _reply(response, HttpStatus.unauthorized, 'unauthorized');
     }
+    // A legitimate operator can always recover the emergency channel from a
+    // bad-auth throttle; unauthenticated local peers cannot lock it forever.
+    _failedAuth = 0;
     if (_inFlight >= _maxInFlight) {
       return _reply(response, HttpStatus.serviceUnavailable, 'busy');
     }

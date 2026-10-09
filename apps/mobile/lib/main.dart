@@ -10,6 +10,7 @@ import 'package:persalone_translation_runtime/persalone_translation_runtime.dart
 
 import 'ble_permission_gate.dart';
 import 'halo_caption_path.dart';
+import 'full_device_remote_control.dart';
 import 'live_stream_config.dart';
 import 'studio_remote_control.dart';
 
@@ -270,7 +271,11 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
   Future<void> _serveRemoteControl() async {
     try {
       final StudioRemoteControl control = await StudioRemoteControl.start(
-        _control,
+        FullDeviceRemoteControlPort(
+          _control,
+          onRemoteStop: _executeStopCommand,
+          onRemotePanic: _executePanicCommand,
+        ),
         config: LiveStreamConfig.parse(
             port: _remoteControlPort, origins: _studioOrigins),
         // On Android the Flutter engine sets Dart's systemTemp to the app's
@@ -279,10 +284,10 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
         tokenDirectory:
             Directory('${Directory.systemTemp.path}/horizon-control'),
         onLocked: () {
-          debugPrint('HORIZON_REMOTE_CONTROL locked');
+          debugPrint('HORIZON_REMOTE_CONTROL bad-auth-throttled');
           if (!mounted) return;
-          setState(() => _remoteStatus = 'Control remoto de HORIZON: BLOQUEADO '
-              'tras intentos fallidos. Relanza la app para uno nuevo.');
+          setState(() => _remoteStatus = 'Control remoto de HORIZON: intentos '
+              'no autenticados limitados. Una credencial válida sigue habilitada.');
         },
       );
       if (!mounted) {
@@ -466,15 +471,7 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     });
   }
 
-  Future<void> _stopLiveTranslation() async {
-    final String? sessionId = _control.activeSessionId;
-    if (sessionId != null) {
-      await _control.execute(StopCommand(
-        commandId: _nextCommandId(),
-        origin: ControlOrigin.local,
-        sessionId: sessionId,
-      ));
-    }
+  void _showStoppedState() {
     if (!mounted) return;
     setState(() {
       _liveRunning = false;
@@ -484,6 +481,25 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       _liveStatus =
           'Sesión detenida. Se descartó el estado textual mostrado en memoria.';
     });
+  }
+
+  Future<CommandResult> _executeStopCommand(StopCommand command) async {
+    final CommandResult result = await _control.execute(command);
+    if (result.status == CommandStatus.accepted) _showStoppedState();
+    return result;
+  }
+
+  Future<void> _stopLiveTranslation() async {
+    final String? sessionId = _control.activeSessionId;
+    if (sessionId == null) {
+      _showStoppedState();
+      return;
+    }
+    await _executeStopCommand(StopCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+      sessionId: sessionId,
+    ));
   }
 
   Future<void> _setLanguage(TranslationDirection direction) async {
@@ -501,14 +517,12 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     });
   }
 
-  /// Emergency stop from any state. G5 handles runtime, STT, TTS and HUD;
-  /// the raw G3/G4 host capture and playback live outside G5 and are stopped
-  /// here best-effort. Ephemeral text and audio buffers are always cleared.
-  Future<void> _panic() async {
-    final CommandResult result = await _control.execute(PanicCommand(
-      commandId: _nextCommandId(),
-      origin: ControlOrigin.local,
-    ));
+  /// Emergency stop from any state. Both local and authenticated remote PANIC
+  /// use this exact phone-level path: G5 handles runtime/STT/TTS/HUD, while
+  /// raw G3/G4 host capture/playback are stopped here best-effort. Ephemeral
+  /// text and audio buffers are always cleared.
+  Future<CommandResult> _executePanicCommand(PanicCommand command) async {
+    final CommandResult result = await _control.execute(command);
     final List<String> failed = <String>[...result.failedCleanup];
     Future<void> bestEffort(String name, Future<void> Function() op) async {
       try {
@@ -521,18 +535,37 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
     if (_capturing) await bestEffort('hostCapture', _microphone.stop);
     if (_playing) await bestEffort('hostPlayback', _speaker.stop);
     _sample.clear();
-    if (!mounted) return;
-    setState(() {
-      _capturing = false;
-      _playing = false;
-      _liveRunning = false;
-      _partialTranscript = '';
-      _finalTranscript = '';
-      _translation = '';
-      _liveStatus = failed.isEmpty
-          ? 'PANIC ejecutado: micrófono, STT, TTS y HUD detenidos; buffers efímeros vaciados.'
-          : 'PANIC ejecutado con fallos de limpieza en: ${failed.join(', ')}. El resto de acciones de seguridad sí se ejecutaron.';
-    });
+    if (mounted) {
+      setState(() {
+        _capturing = false;
+        _playing = false;
+        _liveRunning = false;
+        _partialTranscript = '';
+        _finalTranscript = '';
+        _translation = '';
+        _liveStatus = failed.isEmpty
+            ? 'PANIC ejecutado: micrófono, STT, TTS y HUD detenidos; buffers efímeros vaciados.'
+            : 'PANIC ejecutado con fallos de limpieza en: ${failed.join(', ')}. El resto de acciones de seguridad sí se ejecutaron.';
+      });
+    }
+    if (failed.length == result.failedCleanup.length) return result;
+    return CommandResult(
+      commandId: result.commandId,
+      kind: result.kind,
+      origin: result.origin,
+      status: result.status,
+      observedAtMicros: result.observedAtMicros,
+      rejection: result.rejection,
+      runtimeError: result.runtimeError,
+      failedCleanup: List<String>.unmodifiable(failed),
+    );
+  }
+
+  Future<void> _panic() async {
+    await _executePanicCommand(PanicCommand(
+      commandId: _nextCommandId(),
+      origin: ControlOrigin.local,
+    ));
   }
 
   String _describe(CommandResult result) {
