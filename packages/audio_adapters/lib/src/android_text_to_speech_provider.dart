@@ -15,6 +15,11 @@ import 'android_live_translation_bridge.dart';
 /// `unavailable` with the reason, never estimated.
 final class AndroidTextToSpeechProvider
     implements SpeechSynthesisProvider, SpeechPresentationReporter {
+  /// On-device only: the platform refuses voices that need the network
+  /// (`tts_network_voice_refused`), so synthesis never leaves the phone.
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   AndroidTextToSpeechProvider({
     AndroidLiveTranslationBridge? bridge,
     DateTime Function()? clock,
@@ -84,10 +89,17 @@ final class AndroidTextToSpeechProvider
     try {
       final result = await _bridge.prepareTts(locale: config.targetLocale);
       if (result['ready'] != true) {
-        throw const RuntimeError(
+        // Coded platform reason (e.g. tts_network_voice_refused when only
+        // network voices exist); anything else is not echoed.
+        final Object? reason = result['reason'];
+        final String cause = reason is String && _codedReason.hasMatch(reason)
+            ? reason
+            : 'unavailable';
+        throw RuntimeError(
           RuntimeErrorCode.speechSynthesisUnavailable,
-          'Android speech synthesis is unavailable for the requested locale.',
-          retryable: true,
+          'Android speech synthesis is unavailable for the requested locale: '
+          '$cause.',
+          retryable: cause != networkVoiceRefused,
         );
       }
       _measuredOutput = result['measuredOutput'] == true;
@@ -234,6 +246,11 @@ final class AndroidTextToSpeechProvider
           : 'unspecified',
     ));
   }
+
+  /// The platform found only voices that need the network; it will not
+  /// synthesize off the device (not retryable until a local voice is
+  /// installed).
+  static const String networkVoiceRefused = 'tts_network_voice_refused';
 
   static final RegExp _codedReason = RegExp(r'^[A-Za-z][A-Za-z0-9_]{0,47}$');
 

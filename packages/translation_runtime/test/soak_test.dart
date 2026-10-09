@@ -289,6 +289,9 @@ final class _Input implements AudioInputAdapter {
 }
 
 final class _Stt implements StreamingSttProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   _Stt() {
     _transcripts = StreamController<TranscriptSegment>.broadcast(
       onListen: () {
@@ -338,6 +341,9 @@ final class _Stt implements StreamingSttProvider {
 }
 
 final class _Translator implements TextTranslationProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   final Map<int, Completer<void>> gates = <int, Completer<void>>{};
   @override
   String get providerId => 'soak-translator';
@@ -367,6 +373,9 @@ final class _Translator implements TextTranslationProvider {
 }
 
 final class _Tts implements SpeechSynthesisProvider {
+  @override
+  ProcessingLocation get processingLocation => ProcessingLocation.onDevice;
+
   @override
   String get providerId => 'soak-tts';
   @override

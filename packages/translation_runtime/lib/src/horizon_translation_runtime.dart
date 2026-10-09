@@ -143,6 +143,30 @@ final class HorizonTranslationRuntime {
         'Local live translation requires explicit session consent.',
       );
     }
+    // The one processing-policy boundary: every provider that receives
+    // session content must be allowed where it runs, before any audio is
+    // captured. A provider cannot be swapped afterwards (no fallback path).
+    for (final (String component, ProcessingLocation location) in <(
+      String,
+      ProcessingLocation
+    )>[
+      ('stt', _stt.processingLocation),
+      ('translation', _translator.processingLocation),
+      ('tts', _synthesizer.processingLocation),
+    ]) {
+      if (!ProcessingPolicy.allows(config.consent, location)) {
+        _emitDiagnostic(
+          LiveTranslationDiagnosticCode.consentDenied,
+          component: component,
+          detail: location.name,
+        );
+        throw const RuntimeError(
+          RuntimeErrorCode.policyDenied,
+          'A provider would process session content off the device without '
+          'remote-processing consent.',
+        );
+      }
+    }
     if (config.session.sessionId != audioSession.sessionId ||
         config.session.streamEpoch != audioSession.streamEpoch) {
       throw const RuntimeError(
