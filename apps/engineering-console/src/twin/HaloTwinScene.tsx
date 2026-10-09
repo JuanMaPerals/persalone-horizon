@@ -44,7 +44,7 @@ export interface HaloTwinSceneProps {
 const MM = 0.001;
 const EXPLODE_M = 0.035;
 const envColour: Record<TwinEnvironment, string> = {
-  SIMULATED: '#8f9cb0', EMULATED: '#f4b860', PC_REAL: '#4fb3ff', HALO_REAL: '#7fd6a0', UNKNOWN: '#3a4250', BLOCKED: '#d9534f',
+  SIMULATED: '#8f9cb0', EMULATED: '#f4b860', PC_REAL: '#4fb3ff', ANDROID_REAL: '#b58cff', HALO_REAL: '#7fd6a0', UNKNOWN: '#3a4250', BLOCKED: '#d9534f',
 };
 const provColour: Record<string, string> = {
   OFFICIAL_LOCATION: '#7fd6a0', DOCUMENTED_PROXY: '#6aa0ff', INFERRED_PROXY: '#c77dff', UNKNOWN: '#6b7280',

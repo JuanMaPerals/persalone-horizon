@@ -11,12 +11,18 @@ import 'horizon_translation_runtime.dart';
 final class RuntimeEventStream {
   /// [deviceSnapshots] and [deviceEnvironment] come from the composition root,
   /// which knows the transport behind the device adapter.
+  ///
+  /// [providerEnvironment] labels latency samples measured by the providers
+  /// themselves (speech stages carry no environment of their own). It is read
+  /// per sample; null leaves them unlabelled (UNKNOWN), which is the default.
   RuntimeEventStream(
     HorizonTranslationRuntime runtime, {
     int Function()? nowMicros,
     Stream<DeviceAdapterSnapshot>? deviceSnapshots,
     ExecutionEnvironment deviceEnvironment = ExecutionEnvironment.simulated,
-  }) : _nowMicros = nowMicros ?? _wallClockMicros {
+    ExecutionEnvironment? Function()? providerEnvironment,
+  })  : _nowMicros = nowMicros ?? _wallClockMicros,
+        _providerEnvironment = providerEnvironment {
     _subscriptions
       ..add(runtime.snapshots.listen(_onSnapshot))
       ..add(runtime.captionDeliveries.listen(_onCaption))
@@ -34,6 +40,7 @@ final class RuntimeEventStream {
   }
 
   final int Function() _nowMicros;
+  final ExecutionEnvironment? Function()? _providerEnvironment;
   final StreamController<RuntimeEvent> _events =
       StreamController<RuntimeEvent>.broadcast();
   final List<StreamSubscription<Object>> _subscriptions =
@@ -89,10 +96,19 @@ final class RuntimeEventStream {
   }
 
   void _onLatency(TurnLatencySample sample) {
+    final ExecutionEnvironment? provider = _providerEnvironment?.call();
     _emit(RuntimeEvent.latency(
       streamSequence: ++_sequence,
       observedAtMicros: _nowMicros(),
-      sample: sample,
+      // A sample that names its own environment (a caption stage) keeps it.
+      sample: sample.environment != null || provider == null
+          ? sample
+          : TurnLatencySample(
+              stage: sample.stage,
+              turn: sample.turn,
+              micros: sample.micros,
+              environment: provider,
+            ),
       sessionId: _sessionId,
       streamEpoch: _streamEpoch,
     ));

@@ -126,6 +126,29 @@ void main() {
     _golden('runtime-events.latency.v1.ndjson', lines);
   });
 
+  test('ANDROID_REAL labels provider-measured stages only when declared',
+      () async {
+    ExecutionEnvironment? provider;
+    final _Scenario s =
+        await _Scenario.start(providerEnvironment: () => provider);
+    await s.finalTurn(1, CaptionDeliveryStatus.delivered);
+    provider = ExecutionEnvironment.androidReal;
+    await s.finalTurn(2, CaptionDeliveryStatus.delivered);
+    await s.runtime.stop();
+    final List<Map<String, Object?>> latency = _decode(await s.finish())
+        .where((e) => e['kind'] == 'latency')
+        .toList();
+    Map<String, Object?> at(String stage, int turn) => latency
+        .singleWhere((e) => e['stage'] == stage && e['turn'] == turn);
+
+    expect(at('finalToTranslation', 1)['environment'], isNull,
+        reason: 'before the platform reports a physical phone: UNKNOWN');
+    expect(at('finalToTranslation', 2)['environment'], 'ANDROID_REAL');
+    expect(at('finalToSpeechQueued', 2)['environment'], 'ANDROID_REAL');
+    expect(at('finalToCaption', 2)['environment'], 'SIMULATED',
+        reason: 'a caption stage keeps the environment of its display');
+  });
+
   test('validation run: end of speech, self-echo and glyph limit, no text',
       () async {
     final _Scenario s = await _Scenario.start();
@@ -245,7 +268,8 @@ final class _Scenario {
   );
 
   static Future<_Scenario> start(
-      {Stream<DeviceAdapterSnapshot>? deviceSnapshots}) async {
+      {Stream<DeviceAdapterSnapshot>? deviceSnapshots,
+      ExecutionEnvironment? Function()? providerEnvironment}) async {
     int runtimeTick = 1000;
     int captionTick = 900000;
     int monotonicTick = 0;
@@ -268,6 +292,7 @@ final class _Scenario {
       nowMicros: () => captionTick += 10,
       deviceSnapshots: deviceSnapshots,
       deviceEnvironment: ExecutionEnvironment.emulated,
+      providerEnvironment: providerEnvironment,
     );
     final _Scenario s =
         _Scenario._(runtime, stream, input, stt, captions, tts);

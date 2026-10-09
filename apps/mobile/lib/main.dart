@@ -190,6 +190,11 @@ class _AndroidHostAudioScreenState extends State<AndroidHostAudioScreen> {
       _runtime,
       deviceSnapshots: halo?.device.snapshots,
       deviceEnvironment: halo?.environment ?? ExecutionEnvironment.simulated,
+      // The Android providers measured on a physical phone are ANDROID_REAL;
+      // on an emulator or before capture reports its device, UNKNOWN.
+      providerEnvironment: () => _microphone.captureConfig?.physicalDevice == true
+          ? ExecutionEnvironment.androidReal
+          : null,
     );
     _validationEvents = events;
     unawaited(_serveLiveStream(events));

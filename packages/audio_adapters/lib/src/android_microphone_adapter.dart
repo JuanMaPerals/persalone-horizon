@@ -308,6 +308,7 @@ final class AndroidCaptureConfig {
     required this.echoCancelerAvailable,
     required this.echoCancelerEnabled,
     required this.noiseSuppressorAvailable,
+    this.deviceClass = 'unknown',
   });
 
   factory AndroidCaptureConfig.fromEvent(Map<Object?, Object?> event) {
@@ -319,6 +320,10 @@ final class AndroidCaptureConfig {
       echoCancelerAvailable: event['aecAvailable'] == true,
       echoCancelerEnabled: event['aecEnabled'] == true,
       noiseSuppressorAvailable: event['nsAvailable'] == true,
+      deviceClass: event['deviceClass'] == 'physical' ||
+              event['deviceClass'] == 'emulator'
+          ? event['deviceClass']! as String
+          : 'unknown',
     );
   }
 
@@ -328,10 +333,18 @@ final class AndroidCaptureConfig {
   final bool echoCancelerEnabled;
   final bool noiseSuppressorAvailable;
 
+  /// `physical`, `emulator` or `unknown`, as classified by the platform. Only
+  /// `physical` lets measurements from the Android providers count as
+  /// ANDROID_REAL; anything else leaves them unlabelled.
+  final String deviceClass;
+
+  bool get physicalDevice => deviceClass == 'physical';
+
   Map<String, Object> toJson() => <String, Object>{
         'audioSource': audioSource,
         'aecAvailable': echoCancelerAvailable,
         'aecEnabled': echoCancelerEnabled,
         'nsAvailable': noiseSuppressorAvailable,
+        'deviceClass': deviceClass,
       };
 }

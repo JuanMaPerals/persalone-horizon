@@ -4,7 +4,7 @@
 
 export const RUNTIME_EVENT_SCHEMA = 'horizon.runtime-event.v1';
 
-export type ExecutionEnvironment = 'SIMULATED' | 'EMULATED' | 'PC_REAL' | 'HALO_REAL';
+export type ExecutionEnvironment = 'SIMULATED' | 'EMULATED' | 'PC_REAL' | 'ANDROID_REAL' | 'HALO_REAL';
 export type Truth = 'SIMULATED' | 'PREPARED' | 'MEASURED' | 'BLOCKED' | 'FAILED';
 export type SessionState = 'idle' | 'preparing' | 'listening' | 'stopping' | 'stopped' | 'failed' | 'disposed';
 export type CaptionStatus = 'delivered' | 'blocked' | 'failed';
@@ -93,7 +93,7 @@ export interface LatencyEvent extends EventBase {
 
 export type RuntimeEvent = SessionStateEvent | CaptionEvent | DiagnosticEvent | DeviceStateEvent | LatencyEvent;
 
-const environments: readonly ExecutionEnvironment[] = ['SIMULATED', 'EMULATED', 'PC_REAL', 'HALO_REAL'];
+const environments: readonly ExecutionEnvironment[] = ['SIMULATED', 'EMULATED', 'PC_REAL', 'ANDROID_REAL', 'HALO_REAL'];
 const truths: readonly Truth[] = ['SIMULATED', 'PREPARED', 'MEASURED', 'BLOCKED', 'FAILED'];
 const states: readonly SessionState[] = ['idle', 'preparing', 'listening', 'stopping', 'stopped', 'failed', 'disposed'];
 const captionStatuses: readonly CaptionStatus[] = ['delivered', 'blocked', 'failed'];

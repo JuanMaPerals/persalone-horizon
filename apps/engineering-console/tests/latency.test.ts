@@ -112,6 +112,21 @@ describe('latency statistics', () => {
   });
 });
 
+describe('ANDROID_REAL (real Android providers on a physical phone)', () => {
+  it('is accepted and kept apart from other environments', () => {
+    const text = [1, 2, 3, 4, 5]
+      .map((seq) => sample(seq, 300_000 + seq, { stage: 'finalToTranslation', environment: 'ANDROID_REAL' }))
+      .join('\n');
+    const view = reduceRuntimeEvents(parseRuntimeEventStream(text));
+    expect(view.degraded).toBe(false);
+    expect(view.latency.finalToTranslation.environment).toBe('ANDROID_REAL');
+    const mixed = reduceRuntimeEvents(parseRuntimeEventStream(
+      [sample(1, 1000, { stage: 'finalToTranslation', environment: 'ANDROID_REAL' }), sample(2, 1000, { stage: 'finalToTranslation', environment: null })].join('\n'),
+    ));
+    expect(mixed.latency.finalToTranslation.environment).toBe('MIXED');
+  });
+});
+
 describe('hostile latency events are rejected', () => {
   it.each([
     ['text field', { text: 'hola' }],
@@ -123,6 +138,8 @@ describe('hostile latency events are rejected', () => {
     ['absurd interval', { micros: MAX_LATENCY_MICROS + 1 }],
     ['missing turn', { turn: null }],
     ['fake environment', { environment: 'HARDWARE' }],
+    ['android without the exact label', { environment: 'ANDROID' }],
+    ['lower-case android label', { environment: 'android_real' }],
   ])('%s', (_name, extra) => {
     expect(() => parseRuntimeEventLine(sample(1, 1000, extra))).toThrow(RuntimeEventError);
   });

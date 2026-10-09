@@ -118,7 +118,10 @@ void main() {
         'aecAvailable': true,
         'aecEnabled': true,
         'nsAvailable': false,
+        'deviceClass': 'unknown',
       });
+      expect(config.physicalDevice, isFalse,
+          reason: 'no platform classification is never a physical phone');
       await Future<void>.delayed(Duration.zero);
       expect(
         diagnostics.where(
@@ -126,6 +129,21 @@ void main() {
         isEmpty,
         reason: 'capture_started/stopped were misreported as read errors',
       );
+    });
+
+    test('only an explicit physical classification is a physical phone', () {
+      AndroidCaptureConfig of(Object? deviceClass) =>
+          AndroidCaptureConfig.fromEvent(<Object?, Object?>{
+            'type': 'capture_started',
+            'audioSource': 'voiceRecognition',
+            'deviceClass': deviceClass,
+          });
+      expect(of('physical').physicalDevice, isTrue);
+      expect(of('emulator').physicalDevice, isFalse);
+      for (final Object? hostile in <Object?>[null, 'PHYSICAL', true, 'phone']) {
+        expect(of(hostile).deviceClass, 'unknown', reason: '$hostile');
+        expect(of(hostile).physicalDevice, isFalse, reason: '$hostile');
+      }
     });
 
     test('an unknown source label is recorded as unknown, never guessed', () {
