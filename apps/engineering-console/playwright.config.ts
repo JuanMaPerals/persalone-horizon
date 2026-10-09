@@ -26,7 +26,7 @@ export default defineConfig({
       timeout: 120_000,
     },
     {
-      command: 'node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174 --strictPort',
+      command: 'VITE_HORIZON_RUNTIME_EVENTS_URL=http://127.0.0.1:47813/v1/runtime-events node node_modules/vite/bin/vite.js --host 127.0.0.1 --port 5174 --strictPort',
       url: 'http://127.0.0.1:5174',
       reuseExistingServer: false,
       timeout: 60_000,
